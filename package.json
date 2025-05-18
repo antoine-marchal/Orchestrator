@@ -5,10 +5,19 @@
     "productName": "Orchestrator",
     "files": [
       "dist/",
+      "preload.js",
       "electron-main.js",
       "package.json",
       "node_modules/"
     ],
+    "fileAssociations": [
+    {
+      "ext": "or",
+      "name": "Orchestrator Flow File",
+      "description": "Orchestrator Flow JSON",
+      "role": "Editor",
+      "icon": "build/icon.ico"
+    }],
     "extraResources": [
       {
         "from": "backend/",
@@ -18,6 +27,11 @@
       {
         "from": "node_runtime/",
         "to": "node_runtime",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "preload/",
+        "to": "preload",
         "filter": ["**/*"]
       }
     ],
@@ -29,6 +43,7 @@
       "icon": "build/icon.ico"
     }
   },
+  
   "name": "orchestrator",
   "private": true,
   "version": "0.1.0",

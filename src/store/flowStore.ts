@@ -107,14 +107,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'flow.json';
+    a.download = 'flow.or';
     a.click();
     URL.revokeObjectURL(url);
   },
   loadFlow: () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'application/json';
+    input.accept = '.or,.json';
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
