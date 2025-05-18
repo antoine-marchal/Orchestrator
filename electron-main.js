@@ -46,20 +46,23 @@ function createWindow() {
 }
 
 function startBackend() {
+  let nodeBinary;
   if (app.isPackaged) {
+    nodeBinary = path.join(process.resourcesPath, 'node_runtime', 'node.exe');
     backendPath = path.join(process.resourcesPath, 'backend', 'server.js');
   } else {
+    nodeBinary = 'node'; // Use globally installed node in dev
     backendPath = path.join(__dirname, 'backend', 'server.js');
   }
-  backendProcess = spawn(process.execPath, [backendPath], {
-    stdio: 'inherit'
-    // No need for shell: true unless running batch or shell scripts
-  });
-
-  backendProcess.on('close', (code) => {
-    console.log(`Backend process exited with code ${code}`);
+  
+  console.log('Spawning backend:', nodeBinary, backendPath, 'cwd:', path.dirname(backendPath));
+  backendProcess = spawn(nodeBinary, [backendPath], {
+    stdio: 'inherit',
+    cwd: path.dirname(backendPath),
+    windowsHide: true
   });
 }
+
 
 function stopBackend() {
   if (backendProcess) {
