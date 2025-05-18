@@ -1,77 +1,90 @@
 # Orchestrator
 
-Orchestrator est une application de bureau multiplateforme basée sur Electron, React et Node.js, permettant d'orchestrer et d'exécuter des scripts ou des nœuds personnalisés (JavaScript, Batch, Groovy) via une interface graphique moderne.
+Orchestrator is a cross-platform desktop application based on Electron, React, and Node.js, allowing you to orchestrate and execute custom scripts or nodes (JavaScript, Batch, Groovy) via a modern graphical interface.
 
-## Fonctionnalités principales
-- Interface graphique intuitive pour la gestion de nœuds et de flux
-- Exécution de scripts JavaScript, Batch et Groovy
-- Visualisation et édition des nœuds
-- Support du mode développement et production
+## 🚀 Main Features
+- 🖥️ Intuitive GUI for managing nodes and flows
+- ⚡ Execute JavaScript, Batch, and Groovy scripts
+- 📝 Visualize and edit nodes
+- 🔄 Development and production modes supported
 
-## Prérequis
-- [Node.js](https://nodejs.org/) (v16 ou supérieur recommandé)
-- [npm](https://www.npmjs.com/) (généralement inclus avec Node.js)
+## 📦 Prerequisites
+- [Node.js](https://nodejs.org/) (v16 or higher recommended)
+- [npm](https://www.npmjs.com/) (usually included with Node.js)
 
-## Installation
-1. Clonez ce dépôt :
+## 🛠️ Installation
+1. Clone this repository:
    ```bash
-   git clone <url-du-repo>
+   git clone https://github.com/antoine-marchal/Orchestrator.git
    cd Orchestrator
    ```
-2. Installez les dépendances :
+2. Install dependencies:
    ```bash
    npm install
    ```
 
-## Lancement en mode développement
-1. Démarrez le backend (Node.js) :
+## 👨‍💻 Development Usage
+1. Start the backend (Node.js):
    ```bash
    npm run backend
    ```
-2. Démarrez le frontend (React) :
+2. Start the frontend (React):
    ```bash
    npm run dev
    ```
-3. Lancez l'application Electron :
+3. Launch the Electron app:
    ```bash
    npm run electron
    ```
 
-> **Astuce :** En mode développement, l'interface s'ouvre sur `http://localhost:5173`.
+> **Tip:** In development mode, the interface opens at `http://localhost:5173`.
 
-## Lancement en mode production
-1. Construisez le frontend :
+Or use all-in-one (backend + frontend) with:
+```bash
+npm run start
+```
+
+## 🏗️ Production Usage
+1. Build the frontend:
    ```bash
    npm run build
    ```
-2. Lancez l'application packagée :
+2. Launch the packaged application:
    ```bash
-   npm run start
+   npm run dist
    ```
 
-## Structure du projet
-- `electron-main.js` : Point d'entrée principal Electron, gère la fenêtre et le backend
-- `src/` : Code source React (frontend)
-- `backend/` : Serveur Node.js et API d'exécution des nœuds
-- `public/` : Fichiers statiques
+## 📂 Project Structure
+- `electron-main.js`: Main Electron entry point, manages the window and backend
+- `src/`: React source code (frontend)
+- `backend/`: Node.js server and node execution API
+- `public/`: Static files
 
-## Packaging et distribution
-Pour générer un exécutable pour Windows, Mac ou Linux :
+## 📜 NPM Scripts
+- `npm run dev` — Launches the React frontend in development mode
+- `npm run backend` — Starts the Node.js backend server
+- `npm run start` — Runs both backend and frontend concurrently (development)
+- `npm run electron` — Starts Electron with the main process
+- `npm run build` — Builds the frontend for production
+- `npm run dist` — Builds the frontend and packages the Electron app for distribution
+
+## 📦 Packaging & Distribution
+To generate an executable for Windows, Mac, or Linux:
 ```bash
 npm run dist
 ```
-(Configurez le script selon l'outil de packaging choisi, ex : Electron Forge, Electron Builder...)
+(Configure the script according to your packaging tool, e.g., Electron Builder)
 
-## Contribution
-Les contributions sont les bienvenues !
-- Forkez le projet
-- Créez une branche
-- Proposez une Pull Request
+## 🤝 Contributing
+Contributions are welcome!
+- Fork the project
+- Create a branch
+- Open a Pull Request
 
-## Liens utiles
+## 🔗 Useful Links
 - [Electron](https://www.electronjs.org/)
 - [React](https://react.dev/)
 - [Node.js](https://nodejs.org/)
 
 ---
-© 2024 Orchestrator. Tous droits réservés.
+© 2024 Orchestrator. All rights reserved.
