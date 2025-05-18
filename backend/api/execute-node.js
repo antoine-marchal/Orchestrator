@@ -95,17 +95,33 @@ ${code}
   } else {
     // --- JavaScript/Node.js eval ---
     try {
+      let logs = [];
+      const customConsole = {
+        log: (...args) => {
+          logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+        }
+      };
+    
       const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
       const fn = new AsyncFunction(
-        "input",
+        "input", "console",
         code + '\nreturn typeof process === "function" ? await process(input) : undefined;'
       );
-      const output = await fn(input);
-      res.json({ output });
+    
+      const output = await fn(input, customConsole);
+    
+      // Prepare response
+      const response = { output };
+      if (logs.length > 0) {
+        response.log = logs.join('\n');
+      }
+    
+      res.json(response);
+    
     } catch (err) {
       res.status(500).json({ log: err.message, output: null });
     }
-  }
+  }    
 });
 
 export default router;
