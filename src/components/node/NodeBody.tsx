@@ -48,7 +48,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
         {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
       </div>
       <button
-        className="absolute right-5 top-0 bg-gray-900 p-1 rounded hover:bg-gray-800"
+        className="absolute right-5 top-0 bg-gray-900  rounded hover:bg-gray-800"
         onClick={() => { setExpanded((e) => !e); }}
         aria-label={expanded ? "Collapse output" : "Expand output"}
       >

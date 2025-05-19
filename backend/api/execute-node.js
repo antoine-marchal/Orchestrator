@@ -12,20 +12,22 @@ router.post("/execute-node", async (req, res) => {
   if (type === "groovy") {
     // --- Groovy logic (unchanged) ---
     const tempGroovyPath = path.join(`node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.groovy`);
+    const tempInputPath = path.join(`node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.input`);
     const tempOutputPath = path.join(`node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
+    fs.writeFileSync(tempInputPath, JSON.stringify(input), "utf8");
     const groovyCode = `
-def main(input) {
-${code}
-}
-new File('${tempOutputPath}') << main(${JSON.stringify(input)}).toString()
-`.trim();
+      def input = new File('${tempInputPath}').text
+      def output = ""
+      ${code}
+      new File('${tempOutputPath}') << output.toString()
+      `.trim();
     try {
       fs.writeFileSync(tempGroovyPath, groovyCode, "utf8");
     } catch (err) {
       return res.status(500).json({ output: null, log: "Failed to write Groovy script: " + err.message });
     }
     exec(`java -jar simplews.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
-      fs.unlink(tempGroovyPath, () => {});
+      fs.unlink(tempGroovyPath, () => { });
       if (error) {
         return res.json({ output: null, log: stdout + stderr });
       }
@@ -36,6 +38,7 @@ new File('${tempOutputPath}') << main(${JSON.stringify(input)}).toString()
         outputValue = null;
       }
       fs.unlinkSync(tempOutputPath);
+      fs.unlinkSync(tempInputPath);
       return res.json({
         log: stderr || stdout,
         output: outputValue,
@@ -67,7 +70,7 @@ ${code}
     // Execute the batch file
     exec(`cmd /C "${tempBatchPath}"`, (error, stdout, stderr) => {
       // Clean up temp batch file
-      fs.unlink(tempBatchPath, () => {});
+      fs.unlink(tempBatchPath, () => { });
 
       let outputValue = null;
       try {
@@ -101,27 +104,27 @@ ${code}
           logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
         }
       };
-    
-      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+
+      const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
       const fn = new AsyncFunction(
         "input", "console",
         code + '\nreturn typeof process === "function" ? await process(input) : undefined;'
       );
-    
+
       const output = await fn(input, customConsole);
-    
+
       // Prepare response
       const response = { output };
       if (logs.length > 0) {
         response.log = logs.join('\n');
       }
-    
+
       res.json(response);
-    
+
     } catch (err) {
       res.status(500).json({ log: err.message, output: null });
     }
-  }    
+  }
 });
 
 export default router;

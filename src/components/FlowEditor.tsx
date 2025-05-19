@@ -29,7 +29,7 @@ const nodeTypes: NodeTypes = {
 
 const NODE_TYPES = [
   { id: 'javascript', label: 'JavaScript', code: 'function process(input) {\n  return input;\n}' },
-  { id: 'groovy', label: 'Groovy', code: 'println "beginning processing with $input"\nreturn input' },
+  { id: 'groovy', label: 'Groovy', code: 'println "beginning processing with $input"\noutput= input' },
   { id: 'batch', label: 'Batch', code: 'echo Hello %INPUT% > %OUTPUT%' },
   { id: 'constant', label: 'Constant', value: '0' },
 ];
