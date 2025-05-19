@@ -11,7 +11,8 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
   const { updateNodeData, executeNode, edges, removeNode, nodes, nodeLoading } = useFlowStore();
   const isLoading = nodeLoading?.[id];
   const [isEditing] = React.useState(false);
-
+  const [expanded, setExpanded] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const getNodeLabel = (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     return node?.data?.label || nodeId;
@@ -20,15 +21,19 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
   const inputEdges = edges.filter(edge => edge.target === id);
   const outputEdges = edges.filter(edge => edge.source === id);
   const [minHeight, setMinHeight] = useState(148);
+  const [maxHeight, setMaxHeight] = useState(10000);
+  const [nodeHeight, setNodeHeight] = useState(148);
   const contentRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (contentRef.current) {
       setMinHeight(contentRef.current.offsetHeight);
+      setMaxHeight(contentRef.current.offsetHeight);
+      setNodeHeight(contentRef.current.offsetHeight);
     }
-  }, [data, isEditing]);
+  }, [data, isEditing,expanded,connecting]);
 
   return (
-    <div className={`relative bg-gray-800 h-full rounded-lg ${selected ? 'ring-2 ring-blue-500' : ''}`}>
+    <div className={`relative bg-gray-800 rounded-lg ${selected ? 'ring-2 ring-blue-500' : ''}`}  style={{ height: nodeHeight }}>
       <div
         ref={contentRef}
         className={`flex flex-col transition-all duration-200 ${isLoading ? 'blur-sm pointer-events-none select-none' : ''}`}
@@ -38,6 +43,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
           isVisible={selected}
           minWidth={200}
           minHeight={minHeight}
+          maxHeight={maxHeight}
         />
         <NodeHeader
           data={data}
@@ -49,8 +55,11 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
         />
         <NodeBody
           data={data}
+          nodeId={id}
           isEditing={isEditing}
           onCodeChange={(value) => value && updateNodeData(id, { code: value })}
+          setExpanded={setExpanded}
+          expanded={expanded}
         />
         <NodeFooter
           nodeId={id}
@@ -58,6 +67,8 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
           inputEdges={inputEdges}
           outputEdges={outputEdges}
           getNodeLabel={getNodeLabel}
+          isEditing={isEditing}
+          setConnecting={setConnecting}
         />
       </div>
       {isLoading && (

@@ -6,6 +6,8 @@ import { useFlowStore } from '../../store/flowStore';
 
 interface NodeFooterProps {
   nodeId: string;
+  isEditing: boolean;
+  setConnecting: React.Dispatch<React.SetStateAction<boolean>>;
   type: 'constant' | string;
   inputEdges: EdgeConnection[];
   outputEdges: EdgeConnection[];
@@ -17,6 +19,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
   type,
   inputEdges,
   outputEdges,
+  setConnecting,
   getNodeLabel
 }) => {
   const { moveConnection,removeConnection,updateNodeDraggable } = useFlowStore();
@@ -104,7 +107,15 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
 
   return (
 
-    <div className="p-4 " onMouseEnter={() => updateNodeDraggable(nodeId, false)} onMouseLeave={() => updateNodeDraggable(nodeId, true)}>
+    <div className="p-4 " 
+    onMouseEnter={() => {
+      updateNodeDraggable(nodeId, false);
+      setConnecting(true)
+    }} 
+    onMouseLeave={() => {
+      updateNodeDraggable(nodeId, true);
+      setConnecting(false)
+      }}>
       
       <div className="flex justify-between">
         <div className="w-1/2 pr-2">
@@ -116,7 +127,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
                 className="w-3 h-3 !bg-blue-500"
                 style={{ zIndex: 1 }}
               />
-              <div className="ml-6">
+              <div className="ml-6"  >
                 <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
                   Inputs
                 </span>

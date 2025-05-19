@@ -41,7 +41,7 @@ const NODE_WIDTH = 320;
 const NODE_HEIGHT = 150;
 const NODE_MARGIN = 150;
 
-const getLayoutedElements = (nodes: any[], edges: any[], direction = 'LR') => {
+const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
   dagreGraph.setGraph({ 
     rankdir: direction,
     nodesep: NODE_MARGIN,
@@ -51,11 +51,11 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = 'LR') => {
     acyclicer: 'greedy',
     ranker: 'network-simplex',
   });
-
+ 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, { 
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      width: node.width,
+      height: node.height,
     });
   });
 
@@ -70,8 +70,9 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = 'LR') => {
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - NODE_WIDTH / 2,
-        y: nodeWithPosition.y - NODE_HEIGHT / 2,
+        x: nodeWithPosition.x - ((node.width || NODE_WIDTH) / 2),
+        y: nodeWithPosition.y - ((node.height || NODE_HEIGHT) / 2),
+        
       },
     };
   });
@@ -80,7 +81,7 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
-  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow,panOnDrag } = useFlowStore();
+  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow,panOnDrag,zoomOnScroll } = useFlowStore();
   const [showNodeMenu, setShowNodeMenu] = React.useState(false);
   const [menuPosition, setMenuPosition] = React.useState({ x: 0, y: 0 });
   const { fitView, getNodes, getEdges } = useReactFlow();
@@ -199,7 +200,7 @@ function Flow() {
         nodesDraggable={false}
         panOnDrag={panOnDrag}
         panOnScroll={false}
-        zoomOnScroll={true}
+        zoomOnScroll={zoomOnScroll}
         zoomOnPinch={true}
         isValidConnection={isValidConnection}
         defaultEdgeOptions={{

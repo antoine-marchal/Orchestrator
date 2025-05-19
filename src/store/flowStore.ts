@@ -12,6 +12,7 @@ interface FlowState {
   edges: Edge[];
   nodeLoading: { [key: string]: boolean };
   panOnDrag : boolean;
+  zoomOnScroll : boolean;
   consoleMessages: ConsoleMessage[];
   showConsole: boolean;
   editorModal: {
@@ -20,6 +21,7 @@ interface FlowState {
   };
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
   updatePanOnDrag: (isDraggable: boolean) => void;
+  updateZoomOnScroll: (isDraggable: boolean) => void;
   setNodes: (nodes: Node[] | ((nodes: Node[]) => Node[])) => void;
   setEdges: (edges: Edge[] | ((edges: Edge[]) => Edge[])) => void;
   addNode: (node: Node) => void;
@@ -53,6 +55,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   panOnDrag: true,
   updatePanOnDrag: (isDraggable) => set((state) => ({
     panOnDrag: isDraggable
+  })),
+  zoomOnScroll: true,
+  updateZoomOnScroll: (isDraggable) => set((state) => ({
+    zoomOnScroll: isDraggable
   })),
   setNodeLoading: (nodeId, loading) =>
     set((state) => ({

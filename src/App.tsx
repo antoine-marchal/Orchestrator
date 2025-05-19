@@ -14,7 +14,6 @@ declare global {
 
 function App() {
   const { editorModal, nodes, closeEditorModal, setNodes, setEdges } = useFlowStore();
-  console.log('electronAPI', window.electronAPI);
   useEffect(() => {
     if (window.electronAPI && window.electronAPI.onLoadFlowJson) {
       window.electronAPI.onLoadFlowJson((data) => {
