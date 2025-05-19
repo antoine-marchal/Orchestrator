@@ -80,7 +80,7 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
-  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow } = useFlowStore();
+  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow,panOnDrag } = useFlowStore();
   const [showNodeMenu, setShowNodeMenu] = React.useState(false);
   const [menuPosition, setMenuPosition] = React.useState({ x: 0, y: 0 });
   const { fitView, getNodes, getEdges } = useReactFlow();
@@ -197,7 +197,7 @@ function Flow() {
         minZoom={0.1}
         maxZoom={2}
         nodesDraggable={false}
-        panOnDrag={true}
+        panOnDrag={panOnDrag}
         panOnScroll={false}
         zoomOnScroll={true}
         zoomOnPinch={true}

@@ -39,6 +39,7 @@ function createWindow() {
       preload: path.join(process.resourcesPath, 'preload', 'preload.cjs')
     },
   });
+  
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
@@ -95,6 +96,7 @@ app.whenReady().then(() => {
         }
       });
     }
+    mainWindow.setTitle(`Orchestrator v${app.getVersion()}`);
   });
 
   // Listen for request from renderer to load a file (optional)

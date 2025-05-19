@@ -1,5 +1,8 @@
 {
   "main": "electron-main.js",
+  "name": "orchestrator",
+  "private": true,
+  "version": "0.2.0",
   "build": {
     "appId": "house.marchal.orchestrator",
     "productName": "Orchestrator",
@@ -25,6 +28,11 @@
         "filter": ["**/*"]
       },
       {
+        "from": "backend/node_modules/",
+        "to": "backend/node_modules",
+        "filter": ["**/*"]
+      },
+      {
         "from": "node_runtime/",
         "to": "node_runtime",
         "filter": ["**/*"]
@@ -41,12 +49,17 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
+    },
+    "nsis": {
+    "oneClick": false, 
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "runAfterFinish": true 
     }
   },
   
-  "name": "orchestrator",
-  "private": true,
-  "version": "0.1.0",
+
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -58,7 +71,8 @@
     "electron": "electron electron-main.js",
     "electron:dev": "concurrently \"npm run backend\" \"vite\" \"wait-on http://localhost:5173 && electron electron-main.js\"",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run install:backend && npm run build && electron-builder",
+    "install:backend": "cd backend && npm install"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

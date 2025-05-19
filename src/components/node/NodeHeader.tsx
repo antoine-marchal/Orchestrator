@@ -20,7 +20,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
   onExecute,
   onDelete,
 }) => {
-  const { openEditorModal,updateNodeDraggable } = useFlowStore();
+  const { openEditorModal,updateNodeDraggable,updatePanOnDrag} = useFlowStore();
 
   return (
     <div className="flex items-center justify-between p-4 border-b border-gray-700">
@@ -35,8 +35,14 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           value={data.label}
           onChange={(e) => onLabelChange(e.target.value)}
           onFocus={(e) => e.target.select()}
-          onMouseEnter={() => updateNodeDraggable(nodeId, false)}
-          onMouseLeave={() => updateNodeDraggable(nodeId, true)}
+          onMouseEnter={() => {
+            updateNodeDraggable(nodeId, false),
+            updatePanOnDrag(false)
+          }}
+          onMouseLeave={() => {
+            updateNodeDraggable(nodeId, true),
+            updatePanOnDrag(true)
+          }}
           className="font-semibold text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full"
         />
       </div>
@@ -48,8 +54,14 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
             onChange={(e) => onValueChange(e.target.value)}
             className="text-sm bg-gray-700 border-none rounded px-2 py-1 text-white w-24"
             placeholder="Value..."
-            onMouseEnter={() => updateNodeDraggable(nodeId, false)}
-          onMouseLeave={() => updateNodeDraggable(nodeId, true)}
+            onMouseEnter={() => {
+              updateNodeDraggable(nodeId, false),
+              updatePanOnDrag(false)
+            }}
+            onMouseLeave={() => {
+              updateNodeDraggable(nodeId, true),
+              updatePanOnDrag(true)
+            }}
           onFocus={(e) => e.target.select()}
           />
         )}
