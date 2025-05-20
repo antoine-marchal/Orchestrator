@@ -1,0 +1,109 @@
+{
+  "nodes": [
+    {
+      "id": "node-1747771095094",
+      "type": "custom",
+      "position": {
+        "x": 480,
+        "y": 105
+      },
+      "data": {
+        "label": "executing some fetch",
+        "type": "groovy",
+        "language": "groovy",
+        "code": "import org.openqa.selenium.remote.RemoteWebDriver\nimport org.openqa.selenium.edge.EdgeOptions\nimport java.net.URL\nimport org.openqa.selenium.remote.SessionId\n\n// Sample inputs (from your example)\n\ninput = input[1..-2].split(';')\ndef serviceUrl = new URL(input[0])\n\ndef sessionId = input[1]\nEdgeOptions options = new EdgeOptions()\noptions.addArguments(\"--headless=new\")\noptions.addArguments(\"--disable-gpu\")\noptions.addArguments(\"--window-size=1920,1080\")\nRemoteWebDriver driver = new RemoteWebDriver(serviceUrl, options)\n\n// Use reflection to set the sessionId if setSessionId is protected/private\ndef sidField = RemoteWebDriver.class.getDeclaredField(\"sessionId\")\nsidField.setAccessible(true)\nsidField.set(driver, new SessionId(sessionId))\n\n// (Optional) Check current URL to confirm attached\nprintln \"Attached to browser. Current URL: ${driver.getCurrentUrl()}\"\n\n// Continue with your code...\ntry {\n    driver.get(\"about:blank\")\n    String json = driver.executeAsyncScript(\"\"\"\n        var callback = arguments[arguments.length - 1];\n        fetch('https://pokeapi.co/api/v2/pokemon/pikachu')\n        .then(response => response.json())\n        .then(data => callback(JSON.stringify(data)))\n        .catch(err => callback(JSON.stringify({error: err.message})));\n        \"\"\"\n    )\n    def parsed = new groovy.json.JsonSlurper().parseText(json)\n    output = [\"name\", \"height\", \"weight\", \"base_experience\"].collectEntries { [ (it): parsed[it] ] }\n}finally{}\n",
+        "output": "[name:pikachu, height:4, weight:60, base_experience:112]"
+      },
+      "draggable": true,
+      "width": 740,
+      "height": 194,
+      "selected": false,
+      "dragging": false,
+      "positionAbsolute": {
+        "x": 480,
+        "y": 105
+      },
+      "style": {
+        "width": 740,
+        "height": 194
+      },
+      "resizing": false
+    },
+    {
+      "id": "node-1747771542428",
+      "type": "custom",
+      "position": {
+        "x": -15,
+        "y": 105
+      },
+      "data": {
+        "label": "Create edge session",
+        "type": "groovy",
+        "language": "groovy",
+        "code": "import org.openqa.selenium.WebDriver\nimport org.openqa.selenium.edge.EdgeDriver\nimport org.openqa.selenium.edge.EdgeOptions\nimport org.openqa.selenium.edge.EdgeDriverService\n\n// Set the path to the Edge WebDriver\nSystem.setProperty(\"webdriver.edge.driver\", \"drivers/msedgedriver.exe\")\n\n// Start EdgeDriverService on a fixed port\nEdgeDriverService service = new EdgeDriverService.Builder()\n    .usingPort(9515) // Choose a port (make sure it's free)\n    .build()\n\nEdgeOptions options = new EdgeOptions()\noptions.addArguments(\"--headless=new\")\noptions.addArguments(\"--disable-gpu\")\noptions.addArguments(\"--window-size=1920,1080\")\n\nWebDriver driver = new EdgeDriver(service, options)\noutput =\"\"+service.getUrl()+';'+driver.getSessionId().toString()\n",
+        "output": "http://localhost:9515;6facabf047fa320ae6da14cdbb3f3706"
+      },
+      "draggable": true,
+      "width": 404,
+      "height": 214,
+      "selected": false,
+      "dragging": false,
+      "positionAbsolute": {
+        "x": -15,
+        "y": 105
+      }
+    },
+    {
+      "id": "node-1747773302854",
+      "type": "custom",
+      "position": {
+        "x": 1335,
+        "y": 90
+      },
+      "data": {
+        "label": "Batch",
+        "type": "batch",
+        "language": "batch",
+        "code": "taskkill /F /IM msedgedriver.exe\r\ntaskkill /F /IM msedge.exe\r\n",
+        "output": "SUCCESS: The process \"msedgedriver.exe\" with PID 21808 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 18592 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 21620 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 22256 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 18152 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 23212 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 2972 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 21724 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 10456 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 23836 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 18260 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 14140 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 18076 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 14564 has been terminated.\r\nSUCCESS: The process \"msedge.exe\" with PID 20740 has been terminated.\r\n"
+      },
+      "draggable": true,
+      "width": 558,
+      "height": 438,
+      "selected": false,
+      "dragging": false,
+      "positionAbsolute": {
+        "x": 1335,
+        "y": 90
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "smoothstep",
+      "animated": true,
+      "style": {
+        "stroke": "#64748b",
+        "strokeWidth": 2
+      },
+      "source": "node-1747771542428",
+      "sourceHandle": null,
+      "target": "node-1747771095094",
+      "targetHandle": null,
+      "id": "e1747771633635"
+    },
+    {
+      "type": "smoothstep",
+      "animated": true,
+      "style": {
+        "stroke": "#64748b",
+        "strokeWidth": 2
+      },
+      "source": "node-1747771095094",
+      "sourceHandle": null,
+      "target": "node-1747773302854",
+      "targetHandle": null,
+      "id": "e1747773370278"
+    }
+  ]
+}
