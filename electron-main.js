@@ -4,9 +4,13 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import kill from 'tree-kill';
 import fs from 'fs';
+app.disableHardwareAcceleration(); 
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const gotTheLock = app.requestSingleInstanceLock();
+
+
 
 if (!gotTheLock) {
   app.quit();
