@@ -1,29 +1,25 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
-import path from 'path';
-import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
-import kill from 'tree-kill';
-import fs from 'fs';
-app.disableHardwareAcceleration(); 
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+const { spawn } = require('child_process');
+const kill = require('tree-kill');
+const fs = require('fs');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.disableHardwareAcceleration();
+
 const gotTheLock = app.requestSingleInstanceLock();
-
-
 
 if (!gotTheLock) {
   app.quit();
   process.exit(0);
 } else {
   app.on('second-instance', () => {
-    // Focus window, do not open a new one
-    if (BrowserWindow.getAllWindows().length) {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.focus();
-      }
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
   });
 }
@@ -40,10 +36,10 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(process.resourcesPath, 'preload', 'preload.cjs')
+      preload: path.join(process.resourcesPath, 'preload', 'preload.js')
     },
   });
-  
+
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
@@ -58,10 +54,10 @@ function startBackend() {
     nodeBinary = path.join(process.resourcesPath, 'node_runtime', 'node.exe');
     backendPath = path.join(process.resourcesPath, 'backend', 'server.js');
   } else {
-    nodeBinary = 'node'; // Use globally installed node in dev
+    nodeBinary = 'node';
     backendPath = path.join(__dirname, 'backend', 'server.js');
   }
-  
+
   console.log('Spawning backend:', nodeBinary, backendPath, 'cwd:', path.dirname(backendPath));
   backendProcess = spawn(nodeBinary, [backendPath], {
     stdio: 'inherit',
@@ -69,7 +65,6 @@ function startBackend() {
     windowsHide: true
   });
 }
-
 
 function stopBackend() {
   if (backendProcess) {
@@ -86,11 +81,9 @@ app.whenReady().then(() => {
   startBackend();
   createWindow();
 
-  // Send the path to the renderer after window is ready
   mainWindow.webContents.on('did-finish-load', () => {
     const flowJsonPath = process.argv.find(arg => arg.endsWith('.or') || arg.endsWith('.json'));
     if (flowJsonPath) {
-      // Instead of sending just the path, read and send the data!
       fs.readFile(flowJsonPath, 'utf-8', (err, data) => {
         if (err) {
           console.error('Failed to read flow JSON file:', err);
@@ -103,7 +96,6 @@ app.whenReady().then(() => {
     mainWindow.setTitle(`Orchestrator v${app.getVersion()}`);
   });
 
-  // Listen for request from renderer to load a file (optional)
   ipcMain.on('request-load-flow-json', (event, filePath) => {
     fs.readFile(filePath, 'utf-8', (err, data) => {
       event.sender.send('load-flow-json', err ? null : data);

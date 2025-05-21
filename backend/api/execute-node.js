@@ -1,8 +1,8 @@
-import { Router } from "express";
-import { exec } from "child_process";
-import fs from "fs";
-import os from "os";
-import path from "path";
+const { Router } = require("express");
+const { exec } = require("child_process");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const router = Router();
 
@@ -127,4 +127,4 @@ ${code}
   }
 });
 
-export default router;
+module.exports = router;
