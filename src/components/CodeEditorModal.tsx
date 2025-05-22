@@ -1,7 +1,16 @@
 import React, { useState } from 'react';
-import MonacoEditor from '@monaco-editor/react';
+import AceEditor from 'react-ace';
 import { X } from 'lucide-react';
 import { useFlowStore } from '../store/flowStore';
+
+// Import Ace Editor modes & themes
+import 'ace-builds/src-noconflict/mode-javascript';
+import 'ace-builds/src-noconflict/mode-java';
+import 'ace-builds/src-noconflict/theme-monokai'; // or another you like
+import 'ace-builds/src-noconflict/ext-language_tools';
+import 'ace-builds/src-noconflict/mode-groovy';
+import 'ace-builds/src-noconflict/mode-batchfile';
+import 'ace-builds/src-noconflict/theme-dracula';
 
 interface CodeEditorModalProps {
   nodeId: string;
@@ -35,14 +44,10 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
     }
   };
 
-  const handleEditorValidation = (markers: any[]) => {
-    setIsValid(markers.length === 0);
-    if (markers.length > 0) {
-      setError(markers[0].message);
-    } else {
-      setError(null);
-    }
-  };
+  // Ace does not provide markers like Monaco, so skip handleEditorValidation
+
+  // Choose mode for Ace (js/java)
+  const aceMode = language === 'batch' ? 'batchfile' : language === 'groovy'? 'groovy' : language;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
@@ -73,26 +78,24 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <MonacoEditor
+          <AceEditor
+            mode={aceMode}
+            theme="dracula"
+            name="code-editor"
+            width="100%"
             height="100%"
-            language={language === "groovy" ? "java" : language}
-            theme="vs-dark"
+            fontSize={14}
             value={value}
-            onChange={(value) => setValue(value || '')}
-            onValidate={handleEditorValidation}
-            options={{
-              fontSize: 14,
-              lineNumbers: 'on',
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
+            onChange={(val) => setValue(val ?? '')}
+            setOptions={{
+              enableBasicAutocompletion: true,
+              enableLiveAutocompletion: true,
+              showLineNumbers: true,
               tabSize: 2,
-              wordWrap: 'on',
-              suggestOnTriggerCharacters: true,
-              quickSuggestions: true,
-              formatOnPaste: true,
-              formatOnType: true,
+              useWorker: false, // Ace's built-in worker is often not needed for Electron, but can be enabled for syntax checking
+              wrap: true,
             }}
+            editorProps={{ $blockScrolling: true }}
           />
         </div>
       </div>

@@ -3,8 +3,8 @@ import { useFlowStore } from '../store/flowStore';
 import { Terminal, X, Trash2, Maximize2, Minimize2 } from 'lucide-react';
 
 const Console: React.FC = () => {
-  const { consoleMessages, showConsole, toggleConsole, clearConsole, nodes } = useFlowStore();
-  const [fullscreen, setFullscreen] = React.useState(false);
+  const { consoleMessages, showConsole,fullscreen,setFullscreen,toggleConsole, clearConsole, nodes } = useFlowStore();
+ 
   const consoleRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -48,7 +48,7 @@ const Console: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setFullscreen((v) => !v)}
+            onClick={() => setFullscreen()}
             className="p-1 hover:bg-gray-700 rounded"
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >

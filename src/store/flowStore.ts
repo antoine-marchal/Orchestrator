@@ -15,6 +15,7 @@ interface FlowState {
   zoomOnScroll : boolean;
   consoleMessages: ConsoleMessage[];
   showConsole: boolean;
+  fullscreen: boolean;
   editorModal: {
     isOpen: boolean;
     nodeId: string | null;
@@ -28,8 +29,10 @@ interface FlowState {
   removeNode: (nodeId: string) => void;
   updateNodeData: (nodeId: string, data: any) => void;
   toggleConsole: () => void;
+  setFullscreen: () => void;
   addConsoleMessage: (message: ConsoleMessage) => void;
   clearConsole: () => void;
+  clearFlow: () => void;
   executeNode: (nodeId: string) => void;
   executeFlow: () => void;
   saveFlow: () => void;
@@ -47,12 +50,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   edges: [],
   consoleMessages: [],
   showConsole: false,
+  fullscreen: false,
   editorModal: {
     isOpen: false,
     nodeId: null,
   },
   nodeLoading: {},
   panOnDrag: true,
+  clearFlow: () => set({ nodes: [], edges: [] }),
   updatePanOnDrag: (isDraggable) => set((state) => ({
     panOnDrag: isDraggable
   })),
@@ -92,7 +97,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         node.id === nodeId ? { ...node, data: { ...node.data, ...data } } : node
       ),
     })),
-  toggleConsole: () => set((state) => ({ showConsole: !state.showConsole })),
+  toggleConsole: () => {set((state) => ({ 
+    showConsole: !state.showConsole,
+    fullscreen : false }))},
+    setFullscreen: () => {set((state) => ({
+      fullscreen: !state.fullscreen
+    }))},
   addConsoleMessage: (message) => 
     set((state) => ({ 
       consoleMessages: [...state.consoleMessages, message],
