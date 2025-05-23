@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Node, Edge } from 'reactflow';
+
 interface ConsoleMessage {
   nodeId: string;
   type: 'input' | 'output' | 'error' | 'log';
@@ -20,6 +21,8 @@ interface FlowState {
     isOpen: boolean;
     nodeId: string | null;
   };
+  flowPath?: string | null; // add this!
+  setFlowPath: (path: string | null) => void;
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
   updatePanOnDrag: (isDraggable: boolean) => void;
   updateZoomOnScroll: (isDraggable: boolean) => void;
@@ -57,7 +60,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
   nodeLoading: {},
   panOnDrag: true,
-  clearFlow: () => set({ nodes: [], edges: [] }),
+  flowPath: null,
+  setFlowPath: (path: string | null) => set({ flowPath: path }),
+
+  clearFlow: () => {
+    set({ nodes: [], edges: [], flowPath: null });
+    window.electronAPI?.setTitle?.('default'); // Triggers reset to versioned title
+  },
+  
   updatePanOnDrag: (isDraggable) => set((state) => ({
     panOnDrag: isDraggable
   })),
@@ -118,6 +128,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set({ editorModal: { isOpen: true, nodeId } }),
   closeEditorModal: () =>
     set({ editorModal: { isOpen: false, nodeId: null } }),
+  
   saveFlow: () => {
     const state = get();
     const flow = {
@@ -125,36 +136,39 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       edges: state.edges
     };
     const flowJson = JSON.stringify(flow, null, 2);
-    const blob = new Blob([flowJson], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'flow.or';
-    a.click();
-    URL.revokeObjectURL(url);
+  
+    if (state.flowPath && window.electronAPI?.saveFlowToPath) {
+      // Ask Electron main to save the file directly (safer than fs in renderer)
+      window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
+    } else {
+      // fallback: download as .or file
+      const blob = new Blob([flowJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'flow.or';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   },
-  loadFlow: () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.or,.json';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const content = e.target?.result as string;
-          try {
-            const flow = JSON.parse(content);
-            set({ nodes: flow.nodes, edges: flow.edges });
-          } catch (error) {
-            console.error('Error loading flow:', error);
-          }
-        };
-        reader.readAsText(file);
+  
+  loadFlow: async () => {
+    if (window.electronAPI?.openFlowFile) {
+      const result = await window.electronAPI.openFlowFile();
+      if (result && result.data) {
+        try {
+          const flow = JSON.parse(result.data);
+          set({ nodes: flow.nodes, edges: flow.edges });
+          get().setFlowPath(result.filePath);
+          const fileName = result.filePath.split(/[\\/]/).pop();
+          if(fileName)window.electronAPI?.setTitle?.(fileName);
+        } catch (error) {
+          console.error('Error loading flow:', error);
+        }
       }
-    };
-    input.click();
+    }
   },
+  
   executeFlow: async () => {
     const state = get();
     const visited = new Set<string>();
@@ -210,94 +224,72 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         edges: [...otherEdges, ...reorderedEdges]
       };
     }),
-  executeNode: async (nodeId) => {
-    const state = get();
-    state.setNodeLoading(nodeId, true);
-    const node = state.nodes.find((n) => n.id === nodeId);
-    if (!node) return;
 
-    const addLog = (type: ConsoleMessage['type'], message: string) => {
-      state.addConsoleMessage({
-        nodeId,
-        type,
-        message,
-        timestamp: Date.now(),
-      });
-    };
+
+    executeNode: async (nodeId: string) => {
+      const state = get();
+      state.setNodeLoading(nodeId, true);
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
     
+      const addLog = (type: ConsoleMessage['type'], message: string) => {
+        state.addConsoleMessage({
+          nodeId,
+          type,
+          message,
+          timestamp: Date.now(),
+        });
+      };
     
-    const customConsole = {
-      log: (...args: any[]) => {
-        const message = args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-        ).join(' ');
-        addLog('log', message);
-      },
-      error: (...args: any[]) => {
-        const message = args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-        ).join(' ');
-        addLog('error', message);
-      }
-    };
-
-    try {
-      let result,log;
-      if (node.data.type === 'constant') {
-        result = node.data.value;
-      } else {
-        // Find input nodes and sort them by connection order
-        const inputEdges = state.edges.filter(e => e.target === nodeId);
-
-        const inputNodes = inputEdges
-          .map(e => state.nodes.find(n => n.id === e.source))
-          .filter((n): n is Node => n !== undefined);
-
-        // Get input values from connected nodes
-        const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
-          if (inputNode.data.type === 'constant') {
-            return inputNode.data.value;
+      try {
+        let result: any, log: any, error:any;
+        if (node.data.type === 'constant') {
+          result = node.data.value;
+        } else {
+          // Find input nodes and sort them by connection order
+          const inputEdges = state.edges.filter(e => e.target === nodeId);
+    
+          const inputNodes = inputEdges
+            .map(e => state.nodes.find(n => n.id === e.source))
+            .filter((n): n is Node => n !== undefined);
+    
+          // Get input values from connected nodes
+          const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
+            if (inputNode.data.type === 'constant') {
+              return inputNode.data.value;
+            }
+            return inputNode.data.output;
+          }));
+          const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+          if(inputs.length >0){
+            addLog('input', `Inputs: ${JSON.stringify(processedInputs)}`);
           }
-          return inputNode.data.output;
-        }));
-
-        // If there's only one input, pass it directly instead of as an array
-        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
-        addLog('input', `Inputs: ${JSON.stringify(processedInputs)}`);
-
-        if (node.data.code) {
-          // Prepare the payload for the backend
-          const payload = {
-            code: node.data.code,
-            type: node.data.type,
-            input: processedInputs
-          };
-
-          // Call the backend API to execute the code or command
-          const response = await fetch('http://localhost:3939/api/execute-node', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-          });
-
-          if (!response.ok) {
-            throw new Error(`Backend error: ${response.statusText}`);
+          if (node.data.code) {
+            const payload = {
+              id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+              code: node.data.code,
+              type: node.data.type,
+              input: processedInputs
+            };
+    
+            // CALL THE EXPOSED API FROM PRELOAD
+            const resultData = await (window as any).backendAPI.executeNodeJob(payload);
+            result = resultData.output !== '[]' ? resultData.output:null;
+            log = resultData.log;
+            error = resultData.error !== null && resultData.error !== 'null'? resultData.error : null;
           }
-
-          const resultData = await response.json();
-          result = resultData.output;
-          log = resultData.log;
         }
+        state.setNodeLoading(nodeId, false);
+        if(log)addLog('log', `Log: ${JSON.stringify(log)}`);
+        if(result)addLog('output', `Output: ${JSON.stringify(result)}`);
+        if(error)addLog('error', `Error: ${JSON.stringify(error)}`);
+        state.updateNodeData(nodeId, { output: result });
+      } catch (error: any) {
+        addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
+        state.setNodeLoading(nodeId, false);
       }
-      state.setNodeLoading(nodeId, false);
-      addLog('log', `Log: ${JSON.stringify(log)}`);	
-      addLog('output', `Output: ${JSON.stringify(result)}`);
-      state.updateNodeData(nodeId, { output: result });
-    } catch (error) {
-      addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
-      state.setNodeLoading(nodeId, false);
-    }
-  },
+    },
+    
+    
+
 }));

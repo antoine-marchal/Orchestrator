@@ -17,7 +17,7 @@
       "draggable": true,
       "width": 740,
       "height": 194,
-      "selected": true,
+      "selected": false,
       "dragging": false,
       "positionAbsolute": {
         "x": 1215,
@@ -68,7 +68,7 @@
         "output": "\"done\" \r\n"
       },
       "draggable": true,
-      "width": 358,
+      "width": 357,
       "height": 270,
       "selected": false,
       "dragging": false,
@@ -81,8 +81,8 @@
       "id": "node-1747773735068",
       "type": "custom",
       "position": {
-        "x": 1751,
-        "y": 150
+        "x": 1410,
+        "y": -195
       },
       "data": {
         "label": "2nd pokemon",
@@ -94,12 +94,13 @@
       "draggable": true,
       "width": 417,
       "height": 238,
-      "selected": false,
+      "selected": true,
       "positionAbsolute": {
-        "x": 1335,
-        "y": 285
+        "x": 1410,
+        "y": -195
       },
-      "dragging": false
+      "dragging": false,
+      "resizing": false
     },
     {
       "id": "node-1747773926908",

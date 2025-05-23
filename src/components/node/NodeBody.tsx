@@ -1,5 +1,4 @@
-import React, { useState } from "react";
-import MonacoEditor from '@monaco-editor/react';
+import React from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 

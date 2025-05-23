@@ -82,7 +82,6 @@ const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
 
 function Flow() {
   const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow } = useFlowStore();
-  const [showNodeMenu, setShowNodeMenu] = React.useState(false);
   const { fitView, getNodes, getEdges, project } = useReactFlow();
   const [contextMenu, setContextMenu] = React.useState<null | {
     x: number; y: number; flowX: number; flowY: number
@@ -172,14 +171,7 @@ function Flow() {
   const handlePaneClick = () => {
     closeMenus();
   };
-  const container = document.querySelector('.react-flow'); // adjust selector if needed
-  const rect = container?.getBoundingClientRect() || { left: 0, top: 0, width: 200, height: 200 };
-  const center = {
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2,
-  };
-  const flowCenter = project({ x: center.x - rect.left, y: center.y - rect.top });
-  
+ 
   const addNewNode = (type: string, pos?: { x: number, y: number }) => {
     const nodeType = NODE_TYPES.find(t => t.id === type);
     if (!nodeType) return;

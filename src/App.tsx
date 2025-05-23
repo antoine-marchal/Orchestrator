@@ -7,28 +7,56 @@ import { useFlowStore } from './store/flowStore';
 declare global {
   interface Window {
     electronAPI?: {
-      onLoadFlowJson: (cb: (data: string | null) => void) => void;
+      onLoadFlowJson: (
+        callback: (payload: [string, string | null]) => void
+      ) => void;
+      setTitle?: (title: string) => void;
+      saveFlowToPath?: (path: string, data: string) => void;
+      openFlowFile?: () => Promise<{ filePath: string; data: string } | null>;
     }
   }
 }
 
 function App() {
-  const { editorModal, nodes, closeEditorModal, setNodes, setEdges } = useFlowStore();
+  const { editorModal, nodes, closeEditorModal, setNodes, setEdges,setFlowPath,saveFlow,loadFlow} = useFlowStore();
   useEffect(() => {
-    if (window.electronAPI && window.electronAPI.onLoadFlowJson) {
-      window.electronAPI.onLoadFlowJson((data) => {
+    const api = window.electronAPI;
+    if (api && api.onLoadFlowJson) {
+      api.onLoadFlowJson(([filePath, data]) => {
+        console.log(filePath);
         if (data) {
           try {
             const flow = JSON.parse(data);
             setNodes(flow.nodes || []);
             setEdges(flow.edges || []);
+            setFlowPath(filePath);
+            // Set window title to include file path (or just filename)
+            const fileName = filePath.split(/[\\/]/).pop();
+            if(fileName)api.setTitle?.(fileName);
           } catch (err) {
             alert('Error loading flow from file: ' + err);
           }
         }
       });
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges,]);
+  useEffect(() => {
+    function handleShortcuts(e: KeyboardEvent) {
+      const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const isSave = (isMac && e.metaKey && e.key.toLowerCase() === 's') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 's');
+      const isOpen = (isMac && e.metaKey && e.key.toLowerCase() === 'o') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 'o');
+      if (isSave) {
+        e.preventDefault();
+        saveFlow();
+      }
+      if (isOpen) {
+        e.preventDefault();
+        loadFlow();
+      }
+    }
+    window.addEventListener('keydown', handleShortcuts, true);
+    return () => window.removeEventListener('keydown', handleShortcuts, true);
+  }, [saveFlow, loadFlow]);
 
   const node = nodes.find(n => n.id === editorModal.nodeId);
 
