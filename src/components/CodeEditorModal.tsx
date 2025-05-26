@@ -33,9 +33,6 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
   const handleSave = () => {
     try {
       // Basic syntax validation
-      if (language === 'javascript') {
-        new Function(value);
-      }
       updateNodeData(nodeId, { code: value });
       onClose();
     } catch (err) {
@@ -47,7 +44,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
   // Ace does not provide markers like Monaco, so skip handleEditorValidation
 
   // Choose mode for Ace (js/java)
-  const aceMode = language === 'batch' ? 'batchfile' : language === 'groovy'? 'groovy' : language;
+  const aceMode = language === 'batch' ? 'batchfile' : language === 'groovy'? 'groovy' : 'javascript';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">

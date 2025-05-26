@@ -141,6 +141,9 @@ ipcMain.handle('execute-node-job', async (event, payload) => {
         }
       });
     }
+    else{
+      mainWindow.setTitle(defaultTitle);
+    }
   });
   
   ipcMain.handle('open-flow-file', async () => {

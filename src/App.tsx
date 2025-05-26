@@ -19,6 +19,10 @@ declare global {
 
 function App() {
   const { editorModal, nodes, closeEditorModal, setNodes, setEdges,setFlowPath,saveFlow,loadFlow} = useFlowStore();
+
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+  }, []);
   useEffect(() => {
     const api = window.electronAPI;
     if (api && api.onLoadFlowJson) {

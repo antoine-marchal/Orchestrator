@@ -46,6 +46,26 @@ interface FlowState {
   closeEditorModal: () => void;
   setNodeLoading: (nodeId: string, loading: boolean) => void;
 }
+function prettyFormat(val: any): string {
+  if (val == null) return '';
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch {
+      return String(val);
+    }
+  }
+  if (typeof val === 'string') {
+    // Try to pretty-print if string looks like JSON
+    try {
+      const parsed = JSON.parse(val);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return val;
+    }
+  }
+  return String(val);
+}
 
 export const useFlowStore = create<FlowState>((set, get) => ({
 
@@ -240,15 +260,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           timestamp: Date.now(),
         });
       };
-    
+      
+      
       try {
-        let result: any, log: any, error:any;
+        let result: any, log: any, error: any;
+    
         if (node.data.type === 'constant') {
           result = node.data.value;
         } else {
           // Find input nodes and sort them by connection order
           const inputEdges = state.edges.filter(e => e.target === nodeId);
-    
           const inputNodes = inputEdges
             .map(e => state.nodes.find(n => n.id === e.source))
             .filter((n): n is Node => n !== undefined);
@@ -261,34 +282,60 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             return inputNode.data.output;
           }));
           const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
-          if(inputs.length >0){
-            addLog('input', `Inputs: ${JSON.stringify(processedInputs)}`);
+          if (inputs.length > 0) {
+            addLog('input', prettyFormat(processedInputs));
           }
-          if (node.data.code) {
-            const payload = {
-              id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
-              code: node.data.code,
-              type: node.data.type,
-              input: processedInputs
-            };
-    
-            // CALL THE EXPOSED API FROM PRELOAD
-            const resultData = await (window as any).backendAPI.executeNodeJob(payload);
-            result = resultData.output !== '[]' ? resultData.output:null;
-            log = resultData.log;
-            error = resultData.error !== null && resultData.error !== 'null'? resultData.error : null;
+          const originalConsoleLog = console.log;
+          // --- NEW: Run JS directly if language is javascript ---
+          if (node.data.language === 'javascript') {
+            try {
+              let code = node.data.code?.trim() || '';
+              let fn;
+              if (/^function\s*\w*\s*\(/.test(code)) {
+                fn = new Function(`${code}; return process(arguments[0]);`);
+              } else {
+                fn = new Function('input', code.includes('return') ? code : `return (${code})`);
+              }
+              const logBuffer: any[] = [];
+              console.log = (...args) => {
+                args.forEach(arg => addLog('log', prettyFormat(arg)));
+                logBuffer.push(args);
+              };
+              result = fn(processedInputs);
+              console.log = originalConsoleLog;
+            } catch (err) {
+              console.log = originalConsoleLog;
+              error = (err as Error).message;
+            }
+          }
+           else {
+            // --- FALLBACK: Use backend for Groovy/Batch etc ---
+            if (node.data.code) {
+              const payload = {
+                id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+                code: node.data.code,
+                type: node.data.type,
+                input: processedInputs
+              };
+              // CALL THE EXPOSED API FROM PRELOAD
+              const resultData = await (window as any).backendAPI.executeNodeJob(payload);
+              result = resultData.output !== '[]' ? resultData.output : null;
+              log = resultData.log;
+              error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+            }
           }
         }
         state.setNodeLoading(nodeId, false);
-        if(log)addLog('log', `Log: ${JSON.stringify(log)}`);
-        if(result)addLog('output', `Output: ${JSON.stringify(result)}`);
-        if(error)addLog('error', `Error: ${JSON.stringify(error)}`);
+        if (log) addLog('log', prettyFormat(log));
+        if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
+        if (error) addLog('error', prettyFormat(error));
         state.updateNodeData(nodeId, { output: result });
       } catch (error: any) {
         addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
         state.setNodeLoading(nodeId, false);
       }
     },
+    
     
     
 

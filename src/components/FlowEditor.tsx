@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import ToolbarButton from './ToolbarButton';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -20,7 +21,7 @@ import 'reactflow/dist/style.css';
 import { useFlowStore } from '../store/flowStore';
 import CustomNode from './node/CustomNode';
 import Console from './Console';
-import { Plus, Save, Upload, PlayCircle, Layout, Trash2 } from 'lucide-react';
+import { Save, Upload, Trash2, PlayCircle, Layout, Plus } from 'lucide-react';
 import dagre from 'dagre';
 
 const nodeTypes: NodeTypes = {
@@ -29,9 +30,34 @@ const nodeTypes: NodeTypes = {
 
 const NODE_TYPES = [
   { id: 'javascript', label: 'JavaScript', code: 'function process(input) {\n  return input;\n}' },
+  { id: 'playwright', label: 'Backend JS (PlayWright)', code:
+    `const { firefox } = require('playwright');
+
+(async () => {
+  const browser = await firefox.launch({ headless: true });
+
+  const page = await browser.newPage();
+  
+  const result = await page.evaluate(async () => {
+    const response = await fetch('https://httpbin.org/post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'pikachu', type: 'electric' })
+    });
+    const json = await response.json();
+    return json;
+  });
+
+  console.log(result);
+
+  await browser.close();
+})();
+`
+      },
   { id: 'groovy', label: 'Groovy', code: 'println "beginning processing with $input"\noutput= input' },
   { id: 'batch', label: 'Batch', code: 'echo Hello %INPUT% > %OUTPUT%' },
-  { id: 'constant', label: 'Constant', value: '0' },
+  
+    { id: 'constant', label: 'Constant', value: '0' },
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -226,6 +252,7 @@ function Flow() {
     }, 50);
   };
 
+  
   return (
     <div className="w-full" style={{ height: 'calc(100vh)' }}>
       <ReactFlow
@@ -264,70 +291,79 @@ function Flow() {
             return node.data.type === 'constant' ? '#9333ea' : '#3b82f6';
           }}
         />
-        <Panel position="top-right" className="flex gap-2">
-          <button
-            onClick={saveFlow}
-            className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
-          >
-            <Save className="w-5 h-5" />
-            Save Flow
-          </button>
-          <button
-            onClick={loadFlow}
-            className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
-          >
-            <Upload className="w-5 h-5" />
-            Load Flow
-          </button>
-          <button
-            onClick={clearFlow}
-            className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors"
-            title="Erase flow"
-          >
-            <Trash2 className="w-5 h-5" />
-            Erase Flow
-          </button>
-          <button
-            onClick={executeFlow}
-            className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition-colors"
-          >
-            <PlayCircle className="w-5 h-5" />
-            Run Flow
-          </button>
-          <button
-            onClick={handlePrettifyFlow}
-            className="flex items-center gap-2 bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors"
-          >
-            <Layout className="w-5 h-5" />
-            Prettify
-          </button>
+       <Panel position="top-right" className="flex gap-2">
+  <ToolbarButton
+    onClick={saveFlow}
+    icon={Save}
+    label="Save Flow"
+    color="bg-blue-500 hover:bg-blue-600"
+    title="Save Flow"
+  />
+  <ToolbarButton
+    onClick={loadFlow}
+    icon={Upload}
+    label="Load Flow"
+    color="bg-green-500 hover:bg-green-600"
+    title="Load Flow"
+  />
+  <ToolbarButton
+    onClick={clearFlow}
+    icon={Trash2}
+    label="Erase Flow"
+    color="bg-red-500 hover:bg-red-600"
+    title="Erase Flow"
+  />
+  <ToolbarButton
+    onClick={executeFlow}
+    icon={PlayCircle}
+    label="Run Flow"
+    color="bg-yellow-500 hover:bg-yellow-600"
+    title="Run Flow"
+  />
+  <ToolbarButton
+    onClick={handlePrettifyFlow}
+    icon={Layout}
+    label="Prettify"
+    color="bg-indigo-500 hover:bg-indigo-600"
+    title="Prettify"
+  />
 
-          <div className="relative">
-            <button
-              onClick={handleAddNodeClick}
-              className="flex items-center gap-2 bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition-colors"
-            >
-              <Plus className="w-5 h-5" />
-              Add Node
-            </button>
-            {dropdownMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-2 z-50">
-                {NODE_TYPES.map(type => (
-                  <button
-                    key={type.id}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    onClick={() => addNewNode(type.id)}
-                  >
-                    {type.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </Panel>
+  {/* Add Node Button with Dropdown */}
+  <div className="relative">
+    <ToolbarButton
+      onClick={handleAddNodeClick}
+      icon={Plus}
+      label="Add Node"
+      color="bg-purple-500 hover:bg-purple-600"
+      title="Add Node"
+    />
+    {dropdownMenu && (
+      <div className="absolute right-0 mt-2 w-48 
+        bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 
+        rounded-lg shadow-2xl py-2 z-50"
+      >
+        {NODE_TYPES.map(type => (
+          <button
+            key={type.id}
+            className="w-full text-left px-4 py-2 
+              text-gray-800 dark:text-gray-100
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              focus:bg-gray-200 dark:focus:bg-gray-600
+              transition-colors"
+            onClick={() => addNewNode(type.id)}
+          >
+            {type.label}
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+</Panel>
         {contextMenu && (
   <div
-    className="absolute z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-2"
+  className="absolute right-0 mt-2 w-48 
+  bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 
+  rounded-lg shadow-2xl py-2 z-50"
     style={{
       left: contextMenu.x,
       top: contextMenu.y,
@@ -338,7 +374,11 @@ function Flow() {
     {NODE_TYPES.map(type => (
       <button
         key={type.id}
-        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+        className="w-full text-left px-4 py-2 
+                      text-gray-800 dark:text-gray-100
+                      hover:bg-gray-100 dark:hover:bg-gray-700
+                      focus:bg-gray-200 dark:focus:bg-gray-600
+                      transition-colors"
         onClick={() => addNewNode(type.id, { x: contextMenu.flowX, y: contextMenu.flowY })}
       >
         {type.label}

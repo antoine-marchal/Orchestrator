@@ -1,0 +1,16 @@
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "description": "Backend for external Node-based poller with Playwright",
+    "main": "poller.js",
+    "scripts": {
+      "start": "node poller.js"
+    },
+    "dependencies": {
+      "playwright": "^1.43.1"
+    },
+    "engines": {
+      "node": ">=18"
+    }
+  }
+  

@@ -2,7 +2,7 @@
   "main": "electron-main.js",
   "name": "orchestrator",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "build": {
     "appId": "house.marchal.orchestrator",
     "productName": "Orchestrator",
@@ -33,13 +33,6 @@
       {
         "from": "backend/node_modules/",
         "to": "backend/node_modules",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "node_runtime/",
-        "to": "node_runtime",
         "filter": [
           "**/*"
         ]
@@ -76,6 +69,7 @@
     "electron": "electron electron-main.js",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron electron-main.js\"",
     "pack": "npm run build && electron-builder --dir",
+    "pre:dist": "cd backend && npm install",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {

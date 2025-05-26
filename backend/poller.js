@@ -114,6 +114,30 @@ function processJobFile(filePath) {
             });
         });
     }
+    else if (type === "playwright") {
+        // Use a temp file for the JS script
+        const tempScriptPath = path.join(INBOX, `node_playwright_${Date.now()}_${Math.random().toString(36).slice(2)}.js`);
+        const codeWithInput = `
+    const input = ${JSON.stringify(input)};
+    ${code}
+    `;
+    
+        fs.writeFileSync(tempScriptPath, codeWithInput, "utf8");
+    
+        exec(`node "${tempScriptPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
+            fs.unlink(tempScriptPath, () => {});
+            // Detect errors in stdout too
+            let errorInStdout = '';
+            if (/error|not found|failed|exception/i.test(stdout)) {
+                errorInStdout = stdout;
+            }
+            finish({
+                log: errorInStdout === '' ? stdout : null,
+                error: (stderr || '') + (error ? error.message : '') + errorInStdout,
+                output: stdout && !errorInStdout ? stdout.trim() : null, // Can also parse JSON etc if you expect it!
+            });
+        });
+    }    
     else {
         // JavaScript/Node.js
         let logs = [];
