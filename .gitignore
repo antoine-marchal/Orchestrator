@@ -13,6 +13,7 @@ dist-ssr
 *.local
 backend/inbox
 backend/outbox
+backend/drivers
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -34,7 +34,10 @@ const NODE_TYPES = [
     `const { firefox } = require('playwright');
 
 (async () => {
-  const browser = await firefox.launch({ headless: true });
+  const browser = await firefox.launch({ 
+    headless: true,
+    executablePath: 'drivers/firefox/firefox.exe'
+    });
 
   const page = await browser.newPage();
   
