@@ -13,6 +13,7 @@ declare global {
       setTitle?: (title: string) => void;
       saveFlowToPath?: (path: string, data: string) => void;
       openFlowFile?: () => Promise<{ filePath: string; data: string } | null>;
+      saveFlowAs?: (data: string) => Promise<string | null>;
     }
   }
 }
@@ -46,6 +47,9 @@ function App() {
   }, [setNodes, setEdges,]);
   useEffect(() => {
     function handleShortcuts(e: KeyboardEvent) {
+      // Block global shortcuts if editor modal is open
+      if (editorModal.isOpen) return;
+  
       const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
       const isSave = (isMac && e.metaKey && e.key.toLowerCase() === 's') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 's');
       const isOpen = (isMac && e.metaKey && e.key.toLowerCase() === 'o') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 'o');
@@ -60,7 +64,8 @@ function App() {
     }
     window.addEventListener('keydown', handleShortcuts, true);
     return () => window.removeEventListener('keydown', handleShortcuts, true);
-  }, [saveFlow, loadFlow]);
+  }, [editorModal.isOpen, saveFlow, loadFlow]);
+  
 
   const node = nodes.find(n => n.id === editorModal.nodeId);
 

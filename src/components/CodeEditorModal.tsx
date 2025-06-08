@@ -45,7 +45,26 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
 
   // Choose mode for Ace (js/java)
   const aceMode = language === 'batch' ? 'batchfile' : language === 'groovy'? 'groovy' : 'javascript';
-
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const isSave = (isMac && e.metaKey && e.key.toLowerCase() === 's')
+        || (!isMac && e.ctrlKey && e.key.toLowerCase() === 's');
+      if (isSave) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSave();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+    // Make sure to include handleSave and onClose in deps
+  }, [handleSave, onClose, value, isValid]);
+  
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
       <div className="bg-gray-900 rounded-lg w-[90vw] h-[90vh] flex flex-col">

@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   saveFlowToPath: (filePath, data) => ipcRenderer.send('save-flow-to-path', filePath, data),
   openFlowFile: () => ipcRenderer.invoke('open-flow-file'),
+  saveFlowAs: async (data) => {
+    return await ipcRenderer.invoke('save-flow-as', data);
+  },
 });

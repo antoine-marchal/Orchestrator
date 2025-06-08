@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const kill = require('tree-kill');
 const fs = require('fs');
 
+
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-compositing');
@@ -89,6 +90,16 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 
+
+ipcMain.handle('save-flow-as', async (event, data) => {
+  const result = await dialog.showSaveDialog({
+    filters: [{ name: 'Flow Files', extensions: ['or', 'json'] }],
+    defaultPath: 'my-flow.or'
+  });
+  if (result.canceled || !result.filePath) return null;
+  fs.writeFileSync(result.filePath, data, 'utf8');
+  return result.filePath;
+});
 ipcMain.handle('execute-node-job', async (event, payload) => {
   // Use the same logic as in your TS `executeNode` for file IPC
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;

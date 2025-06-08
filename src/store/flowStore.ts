@@ -149,19 +149,24 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   closeEditorModal: () =>
     set({ editorModal: { isOpen: false, nodeId: null } }),
   
-  saveFlow: () => {
+  saveFlow: async () => {
     const state = get();
-    const flow = {
-      nodes: state.nodes,
-      edges: state.edges
-    };
+    const flow = { nodes: state.nodes, edges: state.edges };
     const flowJson = JSON.stringify(flow, null, 2);
   
     if (state.flowPath && window.electronAPI?.saveFlowToPath) {
-      // Ask Electron main to save the file directly (safer than fs in renderer)
       window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
+      // update title etc
+    } else if (window.electronAPI?.saveFlowAs) {
+      // Use Electron Save As
+      const filePath = await window.electronAPI.saveFlowAs(flowJson);
+      if (filePath) {
+        get().setFlowPath(filePath);
+        const fileName = filePath.split(/[\\/]/).pop();
+        if (fileName) window.electronAPI?.setTitle?.(fileName);
+      }
     } else {
-      // fallback: download as .or file
+      // fallback: browser download (cannot get path!)
       const blob = new Blob([flowJson], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -169,6 +174,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       a.download = 'flow.or';
       a.click();
       URL.revokeObjectURL(url);
+      if (window.electronAPI?.setTitle) window.electronAPI.setTitle('flow.or');
     }
   },
   
