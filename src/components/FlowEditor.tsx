@@ -44,7 +44,7 @@ const NODE_TYPES = [
   { id: 'batch', label: 'Batch', code: 'echo Hello %INPUT% > %OUTPUT%' },
   { id: 'powershell', label: 'PowerShell', code: 'Write-Output "Hello $env:INPUT"\nSet-Content -Path $env:OUTPUT -Value $env:INPUT' },
   { id: 'constant', label: 'Constant', value: '0' },
-  { id: 'comment', label: 'Comment', value: 'New comment' },
+  { id: 'comment', label: 'Comment', value: '' },
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -236,8 +236,22 @@ function Flow() {
   
   
   const handlePrettifyFlow = () => {
-    const layoutedNodes = getLayoutedElements(nodes, edges);
-    setNodes([...layoutedNodes]);
+    // Only layout non-comment nodes
+    const nonCommentNodes = nodes.filter(n => n.type !== 'comment');
+    const commentNodes = nodes.filter(n => n.type === 'comment');
+    const layoutedNodes = getLayoutedElements(nonCommentNodes, edges);
+  
+    // Merge back comment nodes, preserving their original positions
+    const allNodes = [
+      ...layoutedNodes,
+      ...commentNodes
+    ].sort((a, b) => {
+      // Keep original order (optional)
+      return nodes.findIndex(n => n.id === a.id) - nodes.findIndex(n => n.id === b.id);
+    });
+  
+    setNodes(allNodes);
+  
     setTimeout(() => {
       fitView({
         padding: 0.2,
@@ -247,6 +261,7 @@ function Flow() {
       });
     }, 50);
   };
+  
 
   
   return (

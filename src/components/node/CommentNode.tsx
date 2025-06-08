@@ -1,68 +1,76 @@
-import React, { memo } from 'react';
-import { NodeProps } from 'reactflow';
-import { StickyNote } from 'lucide-react'; // or any nice icon
+import React, { memo, useRef, useLayoutEffect, useState } from 'react';
+import { NodeResizer, NodeProps } from 'reactflow';
+import { Trash2 } from 'lucide-react';
+import { useFlowStore } from '../../store/flowStore';
 
-const CommentNode = memo(({ data, id, selected }: NodeProps) => {
-  // Only allow editing the comment (not connections)
-  const [editing, setEditing] = React.useState(false);
-  const [value, setValue] = React.useState(data.value);
+const MIN_HEIGHT = 64;
 
-  React.useEffect(() => {
-    setValue(data.value);
-  }, [data.value]);
+const CommentNode = ({ data, id, selected }: NodeProps) => {
+  const { removeNode, updateNodeData, updateNodeDraggable, updatePanOnDrag } = useFlowStore();
+  const [editing, setEditing] = useState(false);
 
-  // Optionally: Add update logic if you want the comment to be saved in state
-  // But here, we just make it editable inline:
+  useLayoutEffect(() => {
+    updateNodeDraggable(id, !editing);
+    updatePanOnDrag(!editing);
+    return () => {
+      updateNodeDraggable(id, true);
+      updatePanOnDrag(true);
+    };
+  }, [editing, id, updateNodeDraggable, updatePanOnDrag]);
+
   return (
     <div
-      className={`
-        relative
-        bg-yellow-100 dark:bg-yellow-300/20 border-2 border-yellow-400/70
-        shadow-lg rounded-xl
-        min-w-[160px] max-w-[320px] px-4 py-3
-        flex flex-col items-start
-        ${selected ? 'ring-2 ring-yellow-500/80' : ''}
-      `}
+      className="relative border border-yellow-400 bg-yellow-100/80 dark:bg-yellow-800/70 rounded-2xl shadow-md"
       style={{
-        pointerEvents: 'auto',
-        userSelect: 'auto',
-        minHeight: '80px',
-        fontFamily: 'monospace',
-        fontSize: '1rem',
+        minWidth: 180,
+        minHeight: MIN_HEIGHT,
+        width: 'auto',
+        boxShadow: '0 0 0 2px #fde68a30',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%', // allow resizer to set height
       }}
-      onDoubleClick={() => setEditing(true)}
     >
-      <div className="flex items-center gap-2 mb-1 text-yellow-700 dark:text-yellow-100">
-        <StickyNote className="w-5 h-5 opacity-70" />
-        <span className="font-bold">{data.label}</span>
-      </div>
-      {editing ? (
-        <textarea
-          className="w-full bg-transparent border border-yellow-300 rounded p-1 mt-1 text-sm text-yellow-800 dark:text-yellow-100 focus:outline-yellow-400"
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onBlur={() => {
-            setEditing(false);
-            // Save to state
-            if (value !== data.value && typeof window !== 'undefined') {
-              // Find the zustand store and update node data
-              const store = require('../../store/flowStore');
-              store.useFlowStore.getState().updateNodeData(id, { value });
-            }
-          }}
-          autoFocus
-          rows={3}
-        />
-      ) : (
-        <div
-          className="whitespace-pre-line break-words text-sm text-yellow-900 dark:text-yellow-50 opacity-95"
-          onClick={() => setEditing(true)}
+      <NodeResizer
+        color="#eab308"
+        isVisible={selected}
+        minWidth={180}
+        minHeight={MIN_HEIGHT}
+        handleStyle={{
+          zIndex: 20,
+        }}
+      />
+      <div className="flex justify-end pt-2 pr-2">
+        <button
+          onClick={() => removeNode(id)}
+          className="p-1 rounded-full hover:bg-yellow-200/60 dark:hover:bg-yellow-900"
+          tabIndex={-1}
+          title="Delete comment"
         >
-          {value || <span className="italic text-yellow-400/70">Double-click to add comment</span>}
-        </div>
-      )}
+          <Trash2 className="w-3 h-3 text-yellow-700 dark:text-yellow-200" />
+        </button>
+      </div>
+      {/* FLEX-1 makes this fill the remaining space */}
+      <div className="flex-1 flex flex-col px-4 pb-3">
+        <textarea
+          className="w-full h-full flex-1 bg-transparent text-yellow-900 dark:text-yellow-100 font-medium resize-none border-none focus:ring-0 focus:outline-none"
+          placeholder="Add your comment…"
+          value={data.value || ''}
+          onChange={e => updateNodeData(id, { value: e.target.value })}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          onMouseEnter={() => { updateNodeDraggable(id, false); updatePanOnDrag(false); }}
+          onMouseLeave={() => { if (!editing) { updateNodeDraggable(id, true); updatePanOnDrag(true); } }}
+          rows={2}
+          style={{
+            minHeight: '30px',
+            height: '100%',
+            maxHeight: '100%',
+          }}
+        />
+      </div>
     </div>
   );
-});
+};
 
-export default CommentNode;
+export default memo(CommentNode);
