@@ -127,6 +127,7 @@ ipcMain.handle('execute-node-job', async (event, payload) => {
   }
 
   const resultData = JSON.parse(await fsp.readFile(resultFile, 'utf8'));
+  await new Promise(res => setTimeout(res, 250));
   await fsp.unlink(resultFile);
   return resultData;
 });

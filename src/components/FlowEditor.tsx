@@ -23,44 +23,28 @@ import CustomNode from './node/CustomNode';
 import Console from './Console';
 import { Save, Upload, Trash2, PlayCircle, Layout, Plus } from 'lucide-react';
 import dagre from 'dagre';
-
+import CommentNode from './node/CommentNode';
 const nodeTypes: NodeTypes = {
   custom: CustomNode,
+  comment: CommentNode,
 };
 
 const NODE_TYPES = [
-  { id: 'javascript', label: 'JavaScript', code: 'function process(input) {\n  return input;\n}' },
-  { id: 'playwright', label: 'Backend JS (PlayWright)', code:
-    `const { firefox } = require('playwright');
+  { id: 'javascript', label: 'JavaScript', code: 'console.log(\'Hello\')\nreturn input;\n' },
+  { id: 'jsbackend', label: 'Backend JS', code:
+    `console.log('Received input:', input);
 
-(async () => {
-  const browser = await firefox.launch({ 
-    headless: true,
-    executablePath: 'drivers/firefox/firefox.exe'
-    });
+    const result = Array.isArray(input)
+      ? input.map(x => x * 2)    // Doubles each item
+      : [];
 
-  const page = await browser.newPage();
-  
-  const result = await page.evaluate(async () => {
-    const response = await fetch('https://httpbin.org/post', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'pikachu', type: 'electric' })
-    });
-    const json = await response.json();
-    return json;
-  });
-
-  console.log(result);
-
-  await browser.close();
-})();
-`
-      },
+    output = result;`
+  },
   { id: 'groovy', label: 'Groovy', code: 'println "beginning processing with $input"\noutput= input' },
   { id: 'batch', label: 'Batch', code: 'echo Hello %INPUT% > %OUTPUT%' },
-  
-    { id: 'constant', label: 'Constant', value: '0' },
+  { id: 'powershell', label: 'PowerShell', code: 'Write-Output "Hello $env:INPUT"\nSet-Content -Path $env:OUTPUT -Value $env:INPUT' },
+  { id: 'constant', label: 'Constant', value: '0' },
+  { id: 'comment', label: 'Comment', value: 'New comment' },
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -207,40 +191,49 @@ function Flow() {
     const uniqueLabel = getUniqueNodeLabel(nodeType.label);
     let position = pos;
   
-    // If no position given, add in center of viewport
     if (!position) {
-      // Get the center of the ReactFlow viewport
       const container = document.querySelector('.react-flow') as HTMLElement;
       let center;
       if (container) {
         const rect = container.getBoundingClientRect();
-        center = {
-          x: rect.width / 2,
-          y: rect.height / 2,
-        };
+        center = { x: rect.width / 2, y: rect.height / 2 };
         position = project(center);
       } else {
-        // fallback to (100,100)
         position = { x: 100, y: 100 };
       }
     }
   
-    const newNode = {
-      id: `node-${Date.now()}`,
-      type: 'custom',
-      position,
-      data: {
-        label: uniqueLabel,
-        type: type,
-        language: type === 'constant' ? undefined : type,
-        code: type === 'constant' ? undefined : nodeType.code,
-        value: type === 'constant' ? nodeType.value : undefined,
-      },
-      draggable: true,
-    };
+    // Comment nodes only have label/value, and type "comment"
+    const newNode = type === 'comment'
+      ? {
+          id: `node-${Date.now()}`,
+          type: 'comment',
+          position,
+          data: {
+            label: uniqueLabel,
+            value: nodeType.value || '',
+            type: 'comment',
+          },
+          draggable: true,
+        }
+      : {
+          id: `node-${Date.now()}`,
+          type: 'custom',
+          position,
+          data: {
+            label: uniqueLabel,
+            type: type,
+            language: type === 'constant' ? undefined : type,
+            code: type === 'constant' ? undefined : nodeType.code,
+            value: type === 'constant' ? nodeType.value : undefined,
+          },
+          draggable: true,
+        };
+  
     setNodes((nds) => [...nds, newNode]);
     closeMenus();
   };
+  
   
   const handlePrettifyFlow = () => {
     const layoutedNodes = getLayoutedElements(nodes, edges);

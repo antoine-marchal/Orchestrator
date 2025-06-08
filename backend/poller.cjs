@@ -114,30 +114,91 @@ function processJobFile(filePath) {
             });
         });
     }
-    else if (type === "playwright") {
-        // Use a temp file for the JS script
-        const tempScriptPath = path.join(INBOX, `node_playwright_${Date.now()}_${Math.random().toString(36).slice(2)}.js`);
+    else if (type === "jsbackend" || type === "playwright") {
+        // Use temp files for the JS script and output
+        const tempId = `node_jsbackend_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const tempScriptPath = path.join(INBOX, `${tempId}.js`); // <-- always cjs for best compat
+        const tempOutputPath = path.join(INBOX, `${tempId}.output`);
+    
         const codeWithInput = `
+    let output="";
     const input = ${JSON.stringify(input)};
+    import fs from 'fs';
     ${code}
+    fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf8');
     `;
     
         fs.writeFileSync(tempScriptPath, codeWithInput, "utf8");
     
         exec(`node "${tempScriptPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
-            fs.unlink(tempScriptPath, () => {});
-            // Detect errors in stdout too
-            let errorInStdout = '';
-            if (/error|not found|failed|exception/i.test(stdout)) {
-                errorInStdout = stdout;
+          fs.unlink(tempScriptPath, () => {});
+          let outputValue = null;
+          try {
+            if (fs.existsSync(tempOutputPath)) {
+              outputValue = fs.readFileSync(tempOutputPath, "utf8");
+              fs.unlinkSync(tempOutputPath);
+              try { outputValue = JSON.parse(outputValue); } catch {} // decode if possible
             }
-            finish({
-                log: errorInStdout === '' ? stdout : null,
-                error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-                output: stdout && !errorInStdout ? stdout.trim() : null, // Can also parse JSON etc if you expect it!
-            });
+          } catch (err) {
+            outputValue = null;
+          }
+          let errorInStdout = '';
+          if (/error|not found|failed|exception/i.test(stdout)) {
+            errorInStdout = stdout;
+          }
+          finish({
+            log: errorInStdout === '' ? stdout : null,
+            error: (stderr || '') + (error ? error.message : '') + errorInStdout,
+            output: outputValue,
+          });
         });
-    }    
+    }
+    
+    
+    
+    else if (type === "powershell") {
+        const tempPs1Path = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`);
+        const tempOutputPath = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
+        const inputVar = input !== undefined ? String(input).replace(/"/g, '""') : "";
+        // PowerShell uses $env:INPUT and $env:OUTPUT for variables
+        const psCode =
+          `$env:INPUT="${inputVar}"\n$env:OUTPUT="${tempOutputPath}"\n${code}\n`;
+    
+        try {
+          fs.writeFileSync(tempPs1Path, psCode, "utf8");
+        } catch (err) {
+          finish({ output: null, log: "Failed to write PowerShell file: " + err.message, error: err.message });
+          return;
+        }
+    
+        // Run with powershell.exe
+        exec(`powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`, (error, stdout, stderr) => {
+          fs.unlink(tempPs1Path, () => {});
+          let outputValue = null;
+          try {
+            if (fs.existsSync(tempOutputPath)) {
+              outputValue = fs.readFileSync(tempOutputPath, "utf8");
+              fs.unlinkSync(tempOutputPath);
+            }
+          } catch (err) {
+            outputValue = null;
+          }
+          if (!outputValue && stdout) outputValue = stdout;
+    
+          // Detect error patterns
+          let errorInStdout = '';
+          if (/error|not recognized|failed|exception|not found/i.test(stdout)) {
+            errorInStdout = stdout;
+          }
+    
+          finish({
+            log: errorInStdout === '' ? stdout : null,
+            error: (stderr || '') + (error ? error.message : '') + errorInStdout,
+            output: outputValue,
+          });
+        });
+    }
+        
     else {
         // JavaScript/Node.js
         let logs = [];
