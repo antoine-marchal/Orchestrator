@@ -59,7 +59,7 @@ function startBackend() {
     : path.join(process.resourcesPath, 'backend');
 
   const nodeBin = path.join(backendDir, 'node.exe');
-  const pollerScript = path.join(backendDir, 'poller.js');
+  const pollerScript = path.join(backendDir, 'poller.cjs');
 
   if (!fs.existsSync(nodeBin)) {
     console.error('Cannot start backend: node.exe not found:', nodeBin);

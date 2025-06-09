@@ -30,7 +30,11 @@ function processJobFile(filePath) {
         const outputPathGroovy = tempOutputPath.replace(/\\/g, '/');
 
         const groovyCode = `
-      def input = new File('${inputPathGroovy}').text
+        def smartParse = { s -> 
+            try { (s?.trim()?.startsWith('{') || s?.trim()?.startsWith('[')) && s?.contains('"') ? new groovy.json.JsonSlurper().parseText(s) : Eval.me(s) } 
+            catch(e) { s } 
+        }
+      input = smartParse(new File('${inputPathGroovy}').text)
       def output = ""
       ${code}
       new File('${outputPathGroovy}') << output.toString()
@@ -41,7 +45,7 @@ function processJobFile(filePath) {
             finish({ output: null, log: "Failed to write Groovy script: " + err.message });
             return;
         }
-        exec(`java -jar simplews.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
+        exec(`java -jar groovyExec.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
             fs.unlink(tempGroovyPath, () => { });
         
             let outputValue = null;

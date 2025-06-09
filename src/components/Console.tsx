@@ -56,7 +56,12 @@ const Console: React.FC = () => {
     { label: 'Error', value: 'error' },
   ];
 
-
+  function escapeHtml(text: string) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
   return (
     <div
       className={`
@@ -149,10 +154,13 @@ const Console: React.FC = () => {
               [{new Date(msg.timestamp).toLocaleTimeString()}] {getNodeLabel(msg.nodeId)}:{' '}
             </span>
             <span
+              className="whitespace-pre"
               dangerouslySetInnerHTML={{
-                __html: msg.message.replace(/\\r\\n|\\n|\\r/g, '<br />')
+                __html: escapeHtml(msg.message)
               }}
             />
+
+
           </div>
         ))}
       </div>
