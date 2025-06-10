@@ -124,7 +124,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
               <Handle
                 type="target"
                 position={Position.Left}
-                className="w-3 h-3 !bg-blue-500"
+                className={`w-3 h-3 ${type === 'flow' ? '!bg-emerald-500' : '!bg-blue-500'}`}
                 style={{ zIndex: 1 }}
               />
               <div className="ml-6"  >
@@ -145,7 +145,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
             <Handle
               type="source"
               position={Position.Right}
-              className="w-3 h-3 !bg-green-500"
+              className={`w-3 h-3 ${type === 'flow' ? '!bg-emerald-400' : '!bg-green-500'}`}
               style={{ zIndex: 1 }}
             />
             <div className="mr-6 text-right">

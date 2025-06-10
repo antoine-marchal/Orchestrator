@@ -1,5 +1,5 @@
 import React from 'react';
-import { Code2, Hash, Edit2, Play, Trash2 } from 'lucide-react';
+import { Code2, Hash, Edit2, Play, Trash2, GitBranch } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 
@@ -28,6 +28,8 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
         <div className="flex items-center gap-2">
           {data.type === 'constant' ? (
             <Hash className="w-5 h-5 text-purple-500 flex-shrink-0" />
+          ) : data.type === 'flow' ? (
+            <GitBranch className="w-5 h-5 text-emerald-500 flex-shrink-0" />
           ) : (
             <Code2 className="w-5 h-5 text-blue-500 flex-shrink-0" />
           )}

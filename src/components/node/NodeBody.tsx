@@ -20,6 +20,54 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   if (data.type === 'constant') {
     return null;
   }
+  
+  // Special handling for flow nodes
+  if (data.type === 'flow') {
+    const flowPath = data.code || '';
+    const fileName = flowPath.split(/[\\/]/).pop() || 'Unknown flow';
+    
+    return (
+      <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
+        updateNodeDraggable(nodeId, false),
+          updatePanOnDrag(false),
+          updateZoomOnScroll(false)
+      }}
+        onMouseLeave={() => {
+          updateNodeDraggable(nodeId, true),
+            updatePanOnDrag(true),
+            updateZoomOnScroll(true)
+        }}>
+        <div className="text-sm text-gray-400 space-y-2 relative">
+          <div className="bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
+            <div className="text-emerald-400 text-xs font-mono mb-1">Flow File:</div>
+            <div className="text-emerald-300 text-xs font-mono truncate">{flowPath}</div>
+          </div>
+          
+          {data.output !== undefined && (
+            <>
+              <div
+                className={
+                  "bg-gray-900 text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
+                  (expanded ? "max-h-[80vh]" : "max-h-64") +
+                  " overflow-y-auto select-text"
+                }
+              >
+                Output: <br />
+                {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
+              </div>
+              <button
+                className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
+                onClick={() => { setExpanded((e) => !e); }}
+                aria-label={expanded ? "Collapse output" : "Expand output"}
+              >
+                {expanded ? "🔼" : "🔽"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
   const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
   return (
     <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {

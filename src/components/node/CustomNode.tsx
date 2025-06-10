@@ -33,7 +33,13 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
   }, [data, isEditing,expanded,connecting]);
 
   return (
-    <div className={`relative bg-gray-800 rounded-lg ${selected ? 'ring-2 ring-blue-500' : ''}`}  style={{ height: nodeHeight }}>
+    <div className={`relative ${data.type === 'flow' ? 'bg-emerald-900/80' : 'bg-gray-800'} rounded-lg ${
+      selected
+        ? data.type === 'flow'
+          ? 'ring-2 ring-emerald-500'
+          : 'ring-2 ring-blue-500'
+        : ''
+    }`} style={{ height: nodeHeight }}>
       <div
         ref={contentRef}
         className={`flex flex-col transition-all duration-200 ${isLoading ? 'blur-sm pointer-events-none select-none' : ''}`}

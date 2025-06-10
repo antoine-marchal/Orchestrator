@@ -45,6 +45,7 @@ const NODE_TYPES = [
   { id: 'powershell', label: 'PowerShell', code: 'Write-Output "Hello $env:INPUT"\nSet-Content -Path $env:OUTPUT -Value $env:INPUT' },
   { id: 'constant', label: 'Constant', value: '0' },
   { id: 'comment', label: 'Comment', value: '' },
+  { id: 'flow', label: 'Flow', code: '' },
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -94,7 +95,7 @@ const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
-  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow } = useFlowStore();
+  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow, updateNodeData, openEditorModal } = useFlowStore();
   const { fitView, getNodes, getEdges, project } = useReactFlow();
   const [contextMenu, setContextMenu] = React.useState<null | {
     x: number; y: number; flowX: number; flowY: number
@@ -185,7 +186,7 @@ function Flow() {
     closeMenus();
   };
  
-  const addNewNode = (type: string, pos?: { x: number, y: number }) => {
+  const addNewNode = async (type: string, pos?: { x: number, y: number }) => {
     const nodeType = NODE_TYPES.find(t => t.id === type);
     if (!nodeType) return;
     const uniqueLabel = getUniqueNodeLabel(nodeType.label);
@@ -201,6 +202,33 @@ function Flow() {
       } else {
         position = { x: 100, y: 100 };
       }
+    }
+    
+    // Handle flow node type - open file dialog to select a flow file
+    if (type === 'flow' && window.electronAPI?.openFlowFile) {
+      const result = await window.electronAPI.openFlowFile();
+      if (!result || !result.filePath) {
+        return; // User cancelled the file selection
+      }
+      
+      // Extract filename from the path
+      const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
+      
+      const newNode = {
+        id: `node-${Date.now()}`,
+        type: 'custom',
+        position,
+        data: {
+          label: fileName, // Use filename as the node label
+          type: 'flow',
+          code: result.filePath, // Store the filepath in the code property
+        },
+        draggable: true,
+      };
+      
+      setNodes((nds) => [...nds, newNode]);
+      closeMenus();
+      return;
     }
   
     // Comment nodes only have label/value, and type "comment"
@@ -264,6 +292,27 @@ function Flow() {
   
 
   
+  // Handle opening the editor modal for flow nodes
+  const handleNodeDoubleClick = async (event: React.MouseEvent, node: Node) => {
+    if (node.data.type === 'flow' && window.electronAPI?.openFlowFile) {
+      // Open file dialog to select a new flow file
+      const result = await window.electronAPI.openFlowFile();
+      if (result && result.filePath) {
+        // Extract filename from the path
+        const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
+        
+        // Update the node with the new file path and name
+        updateNodeData(node.id, {
+          label: fileName,
+          code: result.filePath
+        });
+      }
+    } else {
+      // For other node types, open the regular editor modal
+      openEditorModal(node.id);
+    }
+  };
+
   return (
     <div className="w-full" style={{ height: 'calc(100vh)' }}>
       <ReactFlow
@@ -288,6 +337,7 @@ function Flow() {
         zoomOnPinch={true}
         isValidConnection={isValidConnection}
         onPaneContextMenu={handlePaneContextMenu}
+        onNodeDoubleClick={handleNodeDoubleClick}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: true,
@@ -299,7 +349,9 @@ function Flow() {
 
         <MiniMap
           nodeColor={(node) => {
-            return node.data.type === 'constant' ? '#9333ea' : '#3b82f6';
+            if (node.data.type === 'constant') return '#9333ea';
+            if (node.data.type === 'flow') return '#10b981'; // Green color for flow nodes
+            return '#3b82f6';
           }}
         />
        <Panel position="top-right" className="flex gap-2">

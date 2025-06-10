@@ -19,7 +19,166 @@ function processJobFile(filePath) {
         fs.unlinkSync(filePath); // Clean up input file
     }
 
-    if (type === "groovy") {
+    if (type === "flow") {
+        // For flow nodes, we need to:
+        // 1. Read the flow file specified in the node's 'code' property
+        // 2. Parse the flow file to extract all nodes
+        // 3. Execute each node in the flow sequentially
+        // 4. Return the result of the last node's execution
+        
+        const flowFilePath = code;
+        
+        // Check if the flow file exists
+        if (!fs.existsSync(flowFilePath)) {
+            finish({
+                output: null,
+                log: null,
+                error: `Flow file not found: ${flowFilePath}`
+            });
+            return;
+        }
+        
+        try {
+            // Read and parse the flow file
+            const flowContent = fs.readFileSync(flowFilePath, 'utf8');
+            const flow = JSON.parse(flowContent);
+            
+            if (!flow.nodes || !Array.isArray(flow.nodes) || !flow.edges || !Array.isArray(flow.edges)) {
+                throw new Error('Invalid flow file format: missing nodes or edges array');
+            }
+            
+            // Create a map of node IDs to nodes for easy lookup
+            const nodeMap = {};
+            flow.nodes.forEach(node => {
+                nodeMap[node.id] = node;
+            });
+            
+            // Create a map of dependencies (which nodes depend on which)
+            const dependencies = {};
+            flow.edges.forEach(edge => {
+                if (!dependencies[edge.target]) {
+                    dependencies[edge.target] = [];
+                }
+                dependencies[edge.target].push(edge.source);
+            });
+            
+            // Find nodes with no outgoing edges (end nodes)
+            const endNodes = flow.nodes.filter(node => 
+                !flow.edges.some(edge => edge.source === node.id)
+            );
+            
+            if (endNodes.length === 0) {
+                throw new Error('Invalid flow: no end nodes found');
+            }
+            
+            // Track executed nodes and their results
+            const nodeResults = {};
+            const visited = new Set();
+            
+            // Function to execute a node and its dependencies recursively
+            const executeNodeInFlow = async (nodeId) => {
+                if (visited.has(nodeId)) {
+                    return nodeResults[nodeId];
+                }
+                visited.add(nodeId);
+                
+                // Execute all dependencies first
+                const deps = dependencies[nodeId] || [];
+                for (const depId of deps) {
+                    await executeNodeInFlow(depId);
+                }
+                
+                const node = nodeMap[nodeId];
+                if (!node) {
+                    throw new Error(`Node not found in flow: ${nodeId}`);
+                }
+                
+                // Get inputs from dependencies
+                let nodeInput = input; // Default to the flow node's input
+                if (deps.length > 0) {
+                    const depResults = deps.map(depId => nodeResults[depId]);
+                    nodeInput = depResults.length === 1 ? depResults[0] : depResults;
+                }
+                
+                // Create a temporary job file for this node
+                const nodeJobId = `flow-${id}-${nodeId}-${Date.now()}`;
+                const nodeJob = {
+                    id: nodeJobId,
+                    code: node.data.code || '',
+                    type: node.data.type,
+                    input: nodeInput
+                };
+                
+                // For constant nodes, just use the value directly
+                if (node.data.type === 'constant') {
+                    nodeResults[nodeId] = node.data.value;
+                    return node.data.value;
+                }
+                
+                // Execute the node job
+                const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
+                fs.writeFileSync(nodeJobPath, JSON.stringify(nodeJob), 'utf8');
+                
+                // Wait for the job to complete
+                return new Promise((resolve, reject) => {
+                    const checkResult = () => {
+                        const resultPath = path.join(OUTBOX, `${nodeJobId}.result.json`);
+                        if (fs.existsSync(resultPath)) {
+                            try {
+                                const resultContent = fs.readFileSync(resultPath, 'utf8');
+                                const result = JSON.parse(resultContent);
+                                fs.unlinkSync(resultPath); // Clean up
+                                
+                                nodeResults[nodeId] = result.output;
+                                resolve(result.output);
+                            } catch (err) {
+                                reject(err);
+                            }
+                        } else {
+                            setTimeout(checkResult, 100); // Check again after 100ms
+                        }
+                    };
+                    
+                    // Start checking for results
+                    setTimeout(checkResult, 100);
+                });
+            };
+            
+            // Execute the flow asynchronously
+            const results = [];
+            (async () => {
+                try {
+                    for (const endNode of endNodes) {
+                        const result = await executeNodeInFlow(endNode.id);
+                        results.push(result);
+                    }
+                    
+                    // Return the result of the last end node
+                    finish({
+                        output: results.length > 0 ? results[results.length - 1] : null,
+                        log: `Successfully executed flow with ${flow.nodes.length} nodes`,
+                        error: null
+                    });
+                } catch (err) {
+                    finish({
+                        output: null,
+                        log: null,
+                        error: `Error executing flow: ${err.message}`
+                    });
+                }
+            })();
+            
+            // Don't call finish() here as it will be called by the async function
+            return;
+        } catch (err) {
+            finish({
+                output: null,
+                log: null,
+                error: `Error processing flow: ${err.message}`
+            });
+        }
+    }
+    else if (type === "groovy") {
         const tempGroovyPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.groovy`);
         const tempInputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.input`);
         const tempOutputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);

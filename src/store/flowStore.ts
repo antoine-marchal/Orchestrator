@@ -273,6 +273,54 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
         if (node.data.type === 'constant') {
           result = node.data.value;
+        } else if (node.data.type === 'flow') {
+          // For flow nodes, we execute the referenced flow file using the backend poller
+          try {
+            // The code property contains the path to the flow file
+            const flowPath = node.data.code;
+            if (!flowPath) {
+              throw new Error('No flow file specified');
+            }
+            
+            addLog('log', `Loading flow from: ${flowPath}`);
+            
+            // Find input nodes and sort them by connection order
+            const inputEdges = state.edges.filter(e => e.target === nodeId);
+            const inputNodes = inputEdges
+              .map(e => state.nodes.find(n => n.id === e.source))
+              .filter((n): n is Node => n !== undefined);
+      
+            // Get input values from connected nodes
+            const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
+              if (inputNode.data.type === 'constant') {
+                return inputNode.data.value;
+              }
+              return inputNode.data.output;
+            }));
+            const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+            if (inputs.length > 0) {
+              addLog('input', prettyFormat(processedInputs));
+            }
+            
+            // Create a payload for the backend poller
+            const payload = {
+              id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+              code: flowPath,
+              type: 'flow',
+              input: processedInputs
+            };
+            
+            addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
+            
+            // Call the backend API to execute the flow
+            const resultData = await (window as any).backendAPI.executeNodeJob(payload);
+            
+            result = resultData.output !== '[]' ? resultData.output : null;
+            log = resultData.log;
+            error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+          } catch (err) {
+            error = (err as Error).message;
+          }
         } else {
           // Find input nodes and sort them by connection order
           const inputEdges = state.edges.filter(e => e.target === nodeId);
