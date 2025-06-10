@@ -1,5 +1,18 @@
 import React from 'react';
-import { Code2, Hash, Edit2, Play, Trash2, GitBranch } from 'lucide-react';
+import {
+  Code2,
+  Hash,
+  Edit2,
+  Play,
+  Trash2,
+  GitBranch,
+  FileCode,
+  Server,
+  Coffee,
+  Terminal,
+  TerminalSquare,
+  MessageSquare
+} from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 
@@ -21,18 +34,40 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
   onDelete,
 }) => {
   const { openEditorModal, updateNodeDraggable, updatePanOnDrag } = useFlowStore();
-
+  const openFlowNodeInNewWindow = async() => {
+      if (data.code) {
+        // If the flow node already has a file path, open it in a new window
+        if (window.electronAPI?.openFlowInNewWindow) {
+          await window.electronAPI.openFlowInNewWindow(data.code);
+        }
+      }
+  }
   return (
     <div className="p-4 border-b border-gray-700">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {data.type === 'constant' ? (
-            <Hash className="w-5 h-5 text-purple-500 flex-shrink-0" />
-          ) : data.type === 'flow' ? (
-            <GitBranch className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-          ) : (
-            <Code2 className="w-5 h-5 text-blue-500 flex-shrink-0" />
-          )}
+          {(() => {
+            switch (data.type) {
+              case 'constant':
+                return <Hash className="w-5 h-5 text-purple-500 flex-shrink-0" />;
+              case 'flow':
+                return <GitBranch className="w-5 h-5 text-emerald-500 flex-shrink-0" />;
+              case 'javascript':
+                return <FileCode className="w-5 h-5 text-yellow-500 flex-shrink-0" />;
+              case 'jsbackend':
+                return <Server className="w-5 h-5 text-blue-500 flex-shrink-0" />;
+              case 'groovy':
+                return <Coffee className="w-5 h-5 text-red-500 flex-shrink-0" />;
+              case 'batch':
+                return <Terminal className="w-5 h-5 text-gray-400 flex-shrink-0" />;
+              case 'powershell':
+                return <TerminalSquare className="w-5 h-5 text-blue-400 flex-shrink-0" />;
+              case 'comment':
+                return <MessageSquare className="w-5 h-5 text-gray-500 flex-shrink-0" />;
+              default:
+                return <Code2 className="w-5 h-5 text-blue-500 flex-shrink-0" />;
+            }
+          })()}
           <input
             type="text"
             value={data.label}
@@ -50,10 +85,18 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           />
         </div>
         <div className="flex items-center gap-2">
-          {data.type !== 'constant' && (
+          {data.type !== 'constant' && data.type !== 'flow' && (
             <button
               className="p-1 hover:bg-gray-700 rounded"
               onClick={() => openEditorModal(nodeId)}
+            >
+              <Edit2 className="w-4 h-4 text-blue-500" />
+            </button>
+          )}
+          {data.type === 'flow' && (
+            <button
+              className="p-1 hover:bg-gray-700 rounded"
+              onClick={() => openFlowNodeInNewWindow()}
             >
               <Edit2 className="w-4 h-4 text-blue-500" />
             </button>

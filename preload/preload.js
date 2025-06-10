@@ -11,6 +11,16 @@ contextBridge.exposeInMainWorld('backendAPI', {
    */
   executeNodeJob: async (payload) => {
     return ipcRenderer.invoke('execute-node-job', payload);
+  },
+  
+  /**
+   * Execute a flow file directly
+   * @param {string} flowFilePath - Path to the flow file to execute
+   * @param {any} [input=null] - Optional input data for the flow
+   * @returns {Promise<any>} - The result of the flow execution
+   */
+  executeFlowFile: async (flowFilePath, input) => {
+    return ipcRenderer.invoke('execute-flow-file', flowFilePath, input);
   }
 });
 
@@ -41,6 +51,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{filePath: string, data: string} | null>} - The selected file path and data, or null if cancelled
    */
   openFlowFile: () => ipcRenderer.invoke('open-flow-file'),
+  
+  /**
+   * Open a flow file in a new window
+   * @param {string} flowFilePath - Path to the flow file to open
+   * @returns {Promise<boolean>} - True if successful, false otherwise
+   */
+  openFlowInNewWindow: (flowFilePath) => ipcRenderer.invoke('open-flow-in-new-window', flowFilePath),
   
   /**
    * Open a save dialog to save flow data to a file (.or or .json)

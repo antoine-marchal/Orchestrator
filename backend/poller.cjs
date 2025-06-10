@@ -8,6 +8,162 @@ const OUTBOX = path.join(__dirname, "outbox");
 if (!fs.existsSync(INBOX)) fs.mkdirSync(INBOX, { recursive: true });
 if (!fs.existsSync(OUTBOX)) fs.mkdirSync(OUTBOX, { recursive: true });
 
+/**
+ * Execute a flow file directly from the command line
+ * @param {string} flowFilePath - Path to the flow file to execute
+ * @param {any} [input=null] - Optional input data for the flow
+ * @returns {Promise<any>} - The result of the flow execution
+ */
+async function executeFlowFile(flowFilePath, input = null) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Check if the flow file exists
+      if (!fs.existsSync(flowFilePath)) {
+        reject(new Error(`Flow file not found: ${flowFilePath}`));
+        return;
+      }
+
+      // Read and parse the flow file
+      const flowContent = fs.readFileSync(flowFilePath, 'utf8');
+      const flow = JSON.parse(flowContent);
+      
+      if (!flow.nodes || !Array.isArray(flow.nodes) || !flow.edges || !Array.isArray(flow.edges)) {
+        reject(new Error('Invalid flow file format: missing nodes or edges array'));
+        return;
+      }
+      
+      // Create a map of node IDs to nodes for easy lookup
+      const nodeMap = {};
+      flow.nodes.forEach(node => {
+        nodeMap[node.id] = node;
+      });
+      
+      // Create a map of dependencies (which nodes depend on which)
+      const dependencies = {};
+      flow.edges.forEach(edge => {
+        if (!dependencies[edge.target]) {
+          dependencies[edge.target] = [];
+        }
+        dependencies[edge.target].push(edge.source);
+      });
+      
+      // Find nodes with no outgoing edges (end nodes)
+      const endNodes = flow.nodes.filter(node =>
+        !flow.edges.some(edge => edge.source === node.id)
+      );
+      
+      if (endNodes.length === 0) {
+        reject(new Error('Invalid flow: no end nodes found'));
+        return;
+      }
+      
+      // Track executed nodes and their results
+      const nodeResults = {};
+      const visited = new Set();
+      
+      // Function to execute a node and its dependencies recursively
+      const executeNodeInFlow = async (nodeId) => {
+        if (visited.has(nodeId)) {
+          return nodeResults[nodeId];
+        }
+        visited.add(nodeId);
+        
+        // Execute all dependencies first
+        const deps = dependencies[nodeId] || [];
+        for (const depId of deps) {
+          await executeNodeInFlow(depId);
+        }
+        
+        const node = nodeMap[nodeId];
+        if (!node) {
+          throw new Error(`Node not found in flow: ${nodeId}`);
+        }
+        
+        // Get inputs from dependencies
+        let nodeInput = input; // Default to the flow's input
+        if (deps.length > 0) {
+          const depResults = deps.map(depId => nodeResults[depId]);
+          nodeInput = depResults.length === 1 ? depResults[0] : depResults;
+        }
+        
+        // For constant nodes, just use the value directly
+        if (node.data.type === 'constant') {
+          nodeResults[nodeId] = node.data.value;
+          return node.data.value;
+        }
+        
+        // Execute the node job
+        const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const nodeJob = {
+          id: nodeJobId,
+          code: node.data.code || '',
+          type: node.data.type,
+          input: nodeInput
+        };
+        
+        // Execute the node job
+        const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
+        fs.writeFileSync(nodeJobPath, JSON.stringify(nodeJob), 'utf8');
+        
+        // Wait for the job to complete
+        return new Promise((resolveNode, rejectNode) => {
+          const checkResult = () => {
+            const resultPath = path.join(OUTBOX, `${nodeJobId}.result.json`);
+            if (fs.existsSync(resultPath)) {
+              try {
+                const resultContent = fs.readFileSync(resultPath, 'utf8');
+                const result = JSON.parse(resultContent);
+                fs.unlinkSync(resultPath); // Clean up
+                
+                // Log node execution results to console in silent mode
+                console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
+                if (result.log) console.log(`Log: ${result.log}`);
+                if (result.error) console.error(`Error: ${result.error}`);
+                console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
+                console.log('---');
+                
+                nodeResults[nodeId] = result.output;
+                resolveNode(result.output);
+              } catch (err) {
+                rejectNode(err);
+              }
+            } else {
+              setTimeout(checkResult, 100); // Check again after 100ms
+            }
+          };
+          
+          // Start checking for results
+          setTimeout(checkResult, 100);
+        });
+      };
+      
+      // Execute the flow asynchronously
+      (async () => {
+        try {
+          console.log(`Executing flow: ${flowFilePath}`);
+          const results = [];
+          for (const endNode of endNodes) {
+            const result = await executeNodeInFlow(endNode.id);
+            results.push(result);
+          }
+          
+          // Return the result of the last end node
+          const finalResult = results.length > 0 ? results[results.length - 1] : null;
+          console.log('\nFlow execution completed successfully.');
+          console.log(`Final result: ${JSON.stringify(finalResult, null, 2)}`);
+          resolve(finalResult);
+        } catch (err) {
+          console.error(`\nFlow execution failed: ${err.message}`);
+          reject(err);
+        }
+      })();
+    } catch (err) {
+      console.error(`Error processing flow: ${err.message}`);
+      reject(err);
+    }
+  });
+}
+
 function processJobFile(filePath) {
     const jobStr = fs.readFileSync(filePath, "utf8");
     const job = JSON.parse(jobStr);
@@ -441,3 +597,8 @@ function pollInbox() {
 
 console.log("Backend file-based executor started.");
 setInterval(pollInbox, 200);
+
+// Export the executeFlowFile function for use in the main process
+module.exports = {
+  executeFlowFile
+};

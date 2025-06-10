@@ -21,7 +21,22 @@ import 'reactflow/dist/style.css';
 import { useFlowStore } from '../store/flowStore';
 import CustomNode from './node/CustomNode';
 import Console from './Console';
-import { Save, Upload, Trash2, PlayCircle, Layout, Plus } from 'lucide-react';
+import {
+  Save,
+  Upload,
+  Trash2,
+  PlayCircle,
+  Layout,
+  Plus,
+  FileCode,
+  Server,
+  Coffee,
+  Terminal,
+  TerminalSquare,
+  Hash,
+  MessageSquare,
+  GitBranch
+} from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
 const nodeTypes: NodeTypes = {
@@ -30,22 +45,68 @@ const nodeTypes: NodeTypes = {
 };
 
 const NODE_TYPES = [
-  { id: 'javascript', label: 'JavaScript', code: 'console.log(\'Hello\')\nreturn input;\n' },
-  { id: 'jsbackend', label: 'Backend JS', code:
-    `console.log('Received input:', input);
+  {
+    id: 'javascript',
+    label: 'JavaScript',
+    code: 'console.log(\'Hello\')\nreturn input;\n',
+    icon: FileCode,
+    iconColor: 'text-yellow-500'
+  },
+  {
+    id: 'jsbackend',
+    label: 'Backend JS',
+    code: `console.log('Received input:', input);
 
     const result = Array.isArray(input)
       ? input.map(x => x * 2)    // Doubles each item
       : [];
 
-    output = result;`
+    output = result;`,
+    icon: Server,
+    iconColor: 'text-blue-500'
   },
-  { id: 'groovy', label: 'Groovy', code: 'println "beginning processing with $input"\noutput= input' },
-  { id: 'batch', label: 'Batch', code: 'echo Hello %INPUT% > %OUTPUT%' },
-  { id: 'powershell', label: 'PowerShell', code: 'Write-Output "Hello $env:INPUT"\nSet-Content -Path $env:OUTPUT -Value $env:INPUT' },
-  { id: 'constant', label: 'Constant', value: '0' },
-  { id: 'comment', label: 'Comment', value: '' },
-  { id: 'flow', label: 'Flow', code: '' },
+  {
+    id: 'groovy',
+    label: 'Groovy',
+    code: 'println "beginning processing with $input"\noutput= input',
+    icon: Coffee,
+    iconColor: 'text-red-500'
+  },
+  {
+    id: 'batch',
+    label: 'Batch',
+    code: 'echo Hello %INPUT% > %OUTPUT%',
+    icon: Terminal,
+    iconColor: 'text-gray-400'
+  },
+  {
+    id: 'powershell',
+    label: 'PowerShell',
+    code: 'Write-Output "Hello $env:INPUT"\nSet-Content -Path $env:OUTPUT -Value $env:INPUT',
+    icon: TerminalSquare,
+    iconColor: 'text-blue-400'
+  },
+  {
+    id: 'constant',
+    label: 'Constant',
+    value: '0',
+    icon: Hash,
+    iconColor: 'text-purple-500'
+  },
+  {
+    id: 'comment',
+    label: 'Comment',
+    value: '',
+    icon: MessageSquare,
+    iconColor: 'text-gray-500'
+  },
+  {
+    id: 'flow',
+    label: 'Flow',
+    code: '',
+    icon: GitBranch,
+    iconColor: 'text-emerald-500'
+  },
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -228,6 +289,12 @@ function Flow() {
       
       setNodes((nds) => [...nds, newNode]);
       closeMenus();
+      
+      // Open the selected flow file in a new window
+      if (window.electronAPI?.openFlowInNewWindow) {
+        await window.electronAPI.openFlowInNewWindow(result.filePath);
+      }
+      
       return;
     }
   
@@ -294,18 +361,30 @@ function Flow() {
   
   // Handle opening the editor modal for flow nodes
   const handleNodeDoubleClick = async (event: React.MouseEvent, node: Node) => {
-    if (node.data.type === 'flow' && window.electronAPI?.openFlowFile) {
-      // Open file dialog to select a new flow file
-      const result = await window.electronAPI.openFlowFile();
-      if (result && result.filePath) {
-        // Extract filename from the path
-        const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
-        
-        // Update the node with the new file path and name
-        updateNodeData(node.id, {
-          label: fileName,
-          code: result.filePath
-        });
+    if (node.data.type === 'flow') {
+      if (node.data.code) {
+        // If the flow node already has a file path, open it in a new window
+        if (window.electronAPI?.openFlowInNewWindow) {
+          await window.electronAPI.openFlowInNewWindow(node.data.code);
+        }
+      } else if (window.electronAPI?.openFlowFile) {
+        // If no file path yet, open file dialog to select a flow file
+        const result = await window.electronAPI.openFlowFile();
+        if (result && result.filePath) {
+          // Extract filename from the path
+          const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
+          
+          // Update the node with the new file path and name
+          updateNodeData(node.id, {
+            label: fileName,
+            code: result.filePath
+          });
+          
+          // Open the selected flow file in a new window
+          if (window.electronAPI?.openFlowInNewWindow) {
+            await window.electronAPI.openFlowInNewWindow(result.filePath);
+          }
+        }
       }
     } else {
       // For other node types, open the regular editor modal
@@ -408,13 +487,16 @@ function Flow() {
         {NODE_TYPES.map(type => (
           <button
             key={type.id}
-            className="w-full text-left px-4 py-2 
+            className="w-full text-left px-4 py-2
               text-gray-800 dark:text-gray-100
               hover:bg-gray-100 dark:hover:bg-gray-700
               focus:bg-gray-200 dark:focus:bg-gray-600
-              transition-colors"
+              transition-colors flex items-center gap-2"
             onClick={() => addNewNode(type.id)}
           >
+            {type.icon && React.createElement(type.icon, {
+              className: `w-4 h-4 ${type.iconColor}`
+            })}
             {type.label}
           </button>
         ))}
@@ -437,13 +519,16 @@ function Flow() {
     {NODE_TYPES.map(type => (
       <button
         key={type.id}
-        className="w-full text-left px-4 py-2 
+        className="w-full text-left px-4 py-2
                       text-gray-800 dark:text-gray-100
                       hover:bg-gray-100 dark:hover:bg-gray-700
                       focus:bg-gray-200 dark:focus:bg-gray-600
-                      transition-colors"
+                      transition-colors flex items-center gap-2"
         onClick={() => addNewNode(type.id, { x: contextMenu.flowX, y: contextMenu.flowY })}
       >
+        {type.icon && React.createElement(type.icon, {
+          className: `w-4 h-4 ${type.iconColor}`
+        })}
         {type.label}
       </button>
     ))}

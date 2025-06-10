@@ -29,6 +29,13 @@ interface ElectronAPI {
   openFlowFile: () => Promise<{filePath: string, data: string} | null>;
   
   /**
+   * Open a flow file in a new window
+   * @param flowFilePath Path to the flow file to open
+   * @returns True if successful, false otherwise
+   */
+  openFlowInNewWindow: (flowFilePath: string) => Promise<boolean>;
+  
+  /**
    * Open a save dialog to save flow data to a file (.or or .json)
    * @param data The data to save
    * @returns The saved file path, or null if cancelled
@@ -43,6 +50,14 @@ interface BackendAPI {
    * @returns The job result
    */
   executeNodeJob: (payload: any) => Promise<any>;
+  
+  /**
+   * Execute a flow file directly
+   * @param flowFilePath Path to the flow file to execute
+   * @param input Optional input data for the flow
+   * @returns The result of the flow execution
+   */
+  executeFlowFile: (flowFilePath: string, input?: any) => Promise<any>;
 }
 
 interface Window {

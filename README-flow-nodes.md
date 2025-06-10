@@ -30,6 +30,12 @@ To change the referenced flow file:
 3. Choose a different flow file to be referenced by this node
 4. The node label will update to reflect the new filename
 
+When you create or double-click a flow node, the referenced flow file will automatically open in a new Orchestrator window. This allows you to:
+
+- View and edit the referenced flow while keeping the parent flow open
+- Make changes to the referenced flow and test them immediately
+- Navigate between multiple levels of nested flows with separate windows for each
+
 ### Visual Identification
 
 Flow nodes have a distinct appearance to help you identify them in your workflows:
@@ -37,6 +43,20 @@ Flow nodes have a distinct appearance to help you identify them in your workflow
 - Flow nodes have a green background color (compared to the standard gray for other nodes)
 - When selected, flow nodes display a green highlight ring
 - In the minimap, flow nodes are represented with a green color
+- Flow nodes are identified by the GitBranch icon (emerald/green) in the node header
+
+#### Node Type Icons
+
+Each node type in Orchestrator has a unique icon to help you quickly identify its purpose:
+
+- **Flow**: GitBranch icon (emerald/green) - Represents a reference to another flow file
+- **JavaScript**: FileCode icon (yellow) - For client-side JavaScript code
+- **Backend JS**: Server icon (blue) - For server-side JavaScript code
+- **Groovy**: Coffee icon (red) - For Groovy script execution
+- **Batch**: Terminal icon (gray) - For Windows batch script execution
+- **PowerShell**: TerminalSquare icon (blue) - For PowerShell script execution
+- **Constant**: Hash icon (purple) - For constant value nodes
+- **Comment**: MessageSquare icon (gray) - For documentation and notes
 
 ## How Flow Nodes Execute and Process Data
 
@@ -139,6 +159,36 @@ Build reusable integration patterns:
    - Returns export status
 
 This modular approach allows each component to be developed, tested, and maintained independently, while also enabling reuse across different workflows.
+
+## Command Line Execution
+
+Orchestrator supports executing flows directly from the command line without opening the UI. This is useful for:
+
+- Running flows as part of automated scripts or scheduled tasks
+- Executing flows in headless environments (servers, CI/CD pipelines)
+- Integrating Orchestrator flows with other applications
+
+### Using Silent Mode
+
+To execute a flow from the command line:
+
+```
+orchestrator.exe -s path/to/flow.or
+```
+
+or
+
+```
+orchestrator.exe --silent path/to/flow.or
+```
+
+In silent mode:
+1. Orchestrator starts the backend services
+2. Executes the specified flow file
+3. Outputs results to the console
+4. Exits automatically when execution is complete
+
+This allows you to incorporate Orchestrator flows into batch files, shell scripts, or other automation tools without requiring user interaction.
 
 ## Conclusion
 

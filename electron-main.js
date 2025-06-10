@@ -4,6 +4,31 @@ const { spawn } = require('child_process');
 const kill = require('tree-kill');
 const fs = require('fs');
 
+// Parse command line arguments
+const argv = process.argv.slice(1);
+const silentModeIndex = argv.findIndex(arg => arg === '-s' || arg === '--silent');
+const isSilentMode = silentModeIndex !== -1;
+let silentModeFlowPath = null;
+
+if (isSilentMode && silentModeIndex + 1 < argv.length) {
+  silentModeFlowPath = argv[silentModeIndex + 1];
+  // Clean the path if needed
+  silentModeFlowPath = cleanArgPath(silentModeFlowPath);
+  
+  // Verify it's a flow file
+  if (!silentModeFlowPath.endsWith('.or') && !silentModeFlowPath.endsWith('.json')) {
+    console.error('Error: Silent mode requires a valid flow file path (.or or .json)');
+    app.exit(1);
+  }
+}
+
+// Helper function to clean path arguments
+function cleanArgPath(str) {
+  if (!str) return str;
+  // Remove all non-printable characters from start
+  return str.replace(/^[^\x20-\x7E]*/, '');
+}
+
 
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
@@ -28,8 +53,14 @@ if (!gotTheLock) {
 let backendProcess;
 let mainWindow;
 let defaultTitle;
-function createWindow() {
-  mainWindow = new BrowserWindow({
+
+/**
+ * Creates a new window with an optional flow file path to open
+ * @param {string} [flowFilePath] - Optional path to a flow file to open
+ * @returns {BrowserWindow} The created window
+ */
+function createWindow(flowFilePath) {
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     autoHideMenuBar: true,
@@ -39,13 +70,45 @@ function createWindow() {
       preload: path.join(process.resourcesPath, 'preload', 'preload.js')
     },
   });
+  
   defaultTitle = `Orchestrator v${app.getVersion()}`;
+  
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    win.loadURL('http://localhost:5173');
+    if (!flowFilePath) win.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join('dist/index.html'));
+    win.loadFile(path.join('dist/index.html'));
   }
+  
+  // If a flow file path was provided, set it up to be loaded when the window is ready
+  if (flowFilePath) {
+    win.webContents.on('did-finish-load', () => {
+      try {
+        const data = fs.readFileSync(flowFilePath, 'utf-8');
+        win.webContents.send('load-flow-json', [flowFilePath, data]);
+        const fileName = flowFilePath.split(/[\\/]/).pop();
+        if (fileName) win.setTitle(`${defaultTitle} - ${fileName}`);
+      } catch (err) {
+        console.error('Failed to read flow file:', err);
+        win.webContents.send('load-flow-json', [flowFilePath, null]);
+      }
+    });
+  }
+  
+  return win;
+}
+
+/**
+ * Opens a flow file in a new window
+ * @param {string} flowFilePath - Path to the flow file to open
+ */
+function openFlowInNewWindow(flowFilePath) {
+  createWindow(flowFilePath);
+}
+
+// Set mainWindow to the first created window
+function createMainWindow() {
+  mainWindow = createWindow();
 }
 
 function startBackend() {
@@ -86,9 +149,43 @@ function stopBackend() {
 
 app.whenReady().then(() => {
   const { ipcMain } = require('electron');
-const fs = require('fs');
-const fsp = require('fs/promises');
-const path = require('path');
+  const fs = require('fs');
+  const fsp = require('fs/promises');
+  const path = require('path');
+
+  // Handle silent mode execution
+  if (isSilentMode && silentModeFlowPath) {
+    console.log(`Running in silent mode with flow file: ${silentModeFlowPath}`);
+    
+    // Start the backend
+    startBackend();
+    
+    // Wait for backend to initialize
+    setTimeout(async () => {
+      try {
+        // Get the backend directory
+        const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+        const backendDir = isDev
+          ? path.join(__dirname, 'backend')
+          : path.join(process.resourcesPath, 'backend');
+        
+        // Import the executeFlowFile function from poller.cjs
+        const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
+        
+        // Execute the flow file
+        await executeFlowFile(silentModeFlowPath);
+        
+        // Exit the application after execution
+        console.log('Flow execution completed. Exiting...');
+        app.exit(0);
+      } catch (error) {
+        console.error(`Error executing flow in silent mode: ${error.message}`);
+        app.exit(1);
+      }
+    }, 1000); // Give the backend a second to start up
+    
+    return; // Skip UI initialization in silent mode
+  }
 
 
 ipcMain.handle('save-flow-as', async (event, data) => {
@@ -131,13 +228,30 @@ ipcMain.handle('execute-node-job', async (event, payload) => {
   await fsp.unlink(resultFile);
   return resultData;
 });
-  startBackend();
-  createWindow();
-  function cleanArgPath(str) {
-    if (!str) return str;
-    // Remove all non-printable characters from start
-    return str.replace(/^[^\x20-\x7E]*/, '');
+
+ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
+  try {
+    // Get the backend directory
+    const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+    const backendDir = isDev
+      ? path.join(__dirname, 'backend')
+      : path.join(process.resourcesPath, 'backend');
+    
+    // Import the executeFlowFile function from poller.cjs
+    const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
+    
+    // Execute the flow file
+    const result = await executeFlowFile(flowFilePath, input);
+    return result;
+  } catch (error) {
+    console.error(`Error executing flow file: ${error.message}`);
+    throw error;
   }
+});
+
+  startBackend();
+  createMainWindow();
+  
   mainWindow.webContents.on('did-finish-load', () => {
     // Find the first argument that looks like an or/json file
     let flowJsonPath = process.argv.find(arg => arg.endsWith('.or') || arg.endsWith('.json'));
@@ -167,6 +281,12 @@ ipcMain.handle('execute-node-job', async (event, payload) => {
     const filePath = result.filePaths[0];
     const data = fs.readFileSync(filePath, 'utf-8');
     return { filePath, data };
+  });
+  
+  ipcMain.handle('open-flow-in-new-window', async (event, flowFilePath) => {
+    if (!flowFilePath) return false;
+    openFlowInNewWindow(flowFilePath);
+    return true;
   });
   ipcMain.on('set-title', (event, title) => {
     const win = BrowserWindow.fromWebContents(event.sender);

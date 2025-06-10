@@ -38,6 +38,7 @@ interface FlowState {
   clearFlow: () => void;
   executeNode: (nodeId: string) => void;
   executeFlow: () => void;
+  executeFlowFile: (flowFilePath: string, input?: any) => Promise<any>;
   saveFlow: () => void;
   loadFlow: () => void;
   removeConnection: (edgeId: string) => void;
@@ -143,7 +144,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     set((state) => ({
       edges: state.edges.filter((edge) => edge.id !== edgeId)
     })),
-
+  
   openEditorModal: (nodeId) =>
     set({ editorModal: { isOpen: true, nodeId } }),
   closeEditorModal: () =>
@@ -192,6 +193,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           console.error('Error loading flow:', error);
         }
       }
+    }
+  },
+  
+  executeFlowFile: async (flowFilePath: string, input?: any) => {
+    try {
+      if (window.backendAPI?.executeFlowFile) {
+        return await window.backendAPI.executeFlowFile(flowFilePath, input);
+      } else {
+        throw new Error('Backend API not available');
+      }
+    } catch (error) {
+      console.error('Error executing flow file:', error);
+      throw error;
     }
   },
   
