@@ -30,7 +30,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
       setMaxHeight(contentRef.current.offsetHeight);
       setNodeHeight(contentRef.current.offsetHeight);
     }
-  }, [data, isEditing,expanded,connecting]);
+  }, [data, isEditing, expanded, connecting, inputEdges.length, outputEdges.length]);
 
   return (
     <div className={`relative ${data.type === 'flow' ? 'bg-emerald-900/80' : 'bg-gray-800'} rounded-lg ${

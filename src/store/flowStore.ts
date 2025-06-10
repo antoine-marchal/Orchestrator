@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Node, Edge } from 'reactflow';
+import path from 'path';
 
 interface ConsoleMessage {
   nodeId: string;
@@ -23,6 +24,8 @@ interface FlowState {
   };
   flowPath?: string | null; // add this!
   setFlowPath: (path: string | null) => void;
+  convertToRelativePath: (absolutePath: string, basePath: string) => string;
+  convertToAbsolutePath: (relativePath: string, basePath: string) => string;
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
   updatePanOnDrag: (isDraggable: boolean) => void;
   updateZoomOnScroll: (isDraggable: boolean) => void;
@@ -150,32 +153,129 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   closeEditorModal: () =>
     set({ editorModal: { isOpen: false, nodeId: null } }),
   
+  // Utility function to convert absolute path to relative path
+  convertToRelativePath: (absolutePath: string, basePath: string) => {
+    if (!absolutePath || !basePath) return absolutePath;
+    
+    try {
+      // Get directory of the base path
+      const baseDir = path.dirname(basePath);
+      
+      // Convert absolute path to relative path
+      const relativePath = path.relative(baseDir, absolutePath);
+      
+      // Return the relative path with forward slashes for consistency
+      return relativePath.replace(/\\/g, '/');
+    } catch (error) {
+      console.error('Error converting to relative path:', error);
+      return absolutePath;
+    }
+  },
+  
+  // Utility function to convert relative path to absolute path
+  convertToAbsolutePath: (relativePath: string, basePath: string) => {
+    if (!relativePath || !basePath) return relativePath;
+    
+    try {
+      // Check if the path is already absolute
+      if (path.isAbsolute(relativePath)) {
+        return relativePath;
+      }
+      
+      // Get directory of the base path
+      const baseDir = path.dirname(basePath);
+      
+      // Convert relative path to absolute path
+      return path.resolve(baseDir, relativePath);
+    } catch (error) {
+      console.error('Error converting to absolute path:', error);
+      return relativePath;
+    }
+  },
+  
   saveFlow: async () => {
     const state = get();
-    const flow = { nodes: state.nodes, edges: state.edges };
+    
+    // Create a deep copy of nodes to avoid modifying the original nodes
+    let nodesToSave = JSON.parse(JSON.stringify(state.nodes));
+    
+    // If we have a flow path, convert all flow node paths to relative paths
+    if (state.flowPath) {
+      nodesToSave = nodesToSave.map((node: Node) => {
+        if (node.data.type === 'flow' && node.data.code) {
+          // Skip if already a relative path
+          if (node.data.isRelativePath) {
+            return node;
+          }
+          
+          // Convert absolute path to relative path
+          const relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              code: relativePath,
+              isRelativePath: true
+            }
+          };
+        }
+        return node;
+      });
+    }
+    
+    const flow = { nodes: nodesToSave, edges: state.edges };
     const flowJson = JSON.stringify(flow, null, 2);
   
-    if (state.flowPath && window.electronAPI?.saveFlowToPath) {
-      window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
-      // update title etc
-    } else if (window.electronAPI?.saveFlowAs) {
-      // Use Electron Save As
-      const filePath = await window.electronAPI.saveFlowAs(flowJson);
-      if (filePath) {
-        get().setFlowPath(filePath);
-        const fileName = filePath.split(/[\\/]/).pop();
-        if (fileName) window.electronAPI?.setTitle?.(fileName);
+    try {
+      if (state.flowPath && window.electronAPI?.saveFlowToPath) {
+        await window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
+        // After saving, update the nodes in the store with relative paths
+        if (JSON.stringify(nodesToSave) !== JSON.stringify(state.nodes)) {
+          set({ nodes: nodesToSave });
+        }
+      } else if (window.electronAPI?.saveFlowAs) {
+        // Use Electron Save As
+        const filePath = await window.electronAPI.saveFlowAs(flowJson);
+        if (filePath) {
+          get().setFlowPath(filePath);
+          const fileName = filePath.split(/[\\/]/).pop();
+          if (fileName) window.electronAPI?.setTitle?.(fileName);
+          
+          // After saving for the first time, convert any absolute paths to relative
+          // and update the nodes in the store
+          const updatedNodes = state.nodes.map((node: Node) => {
+            if (node.data.type === 'flow' && node.data.code && !node.data.isRelativePath) {
+              const relativePath = get().convertToRelativePath(node.data.code, filePath);
+              
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  code: relativePath,
+                  isRelativePath: true
+                }
+              };
+            }
+            return node;
+          });
+          
+          set({ nodes: updatedNodes });
+        }
+      } else {
+        // fallback: browser download (cannot get path!)
+        const blob = new Blob([flowJson], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'flow.or';
+        a.click();
+        URL.revokeObjectURL(url);
+        if (window.electronAPI?.setTitle) window.electronAPI.setTitle('flow.or');
       }
-    } else {
-      // fallback: browser download (cannot get path!)
-      const blob = new Blob([flowJson], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'flow.or';
-      a.click();
-      URL.revokeObjectURL(url);
-      if (window.electronAPI?.setTitle) window.electronAPI.setTitle('flow.or');
+    } catch (error) {
+      console.error('Error saving flow:', error);
+      alert(`Error saving flow: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
   
@@ -185,7 +285,27 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       if (result && result.data) {
         try {
           const flow = JSON.parse(result.data);
-          set({ nodes: flow.nodes, edges: flow.edges });
+          
+          // Convert relative paths to absolute paths for flow nodes
+          const nodes = flow.nodes.map((node: Node) => {
+            if (node.data.type === 'flow' && node.data.code && node.data.isRelativePath) {
+              // Convert relative path to absolute path
+              const absolutePath = get().convertToAbsolutePath(node.data.code, result.filePath);
+              
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  code: absolutePath,
+                  // Keep isRelativePath flag so we know to convert back when saving
+                  isRelativePath: true
+                }
+              };
+            }
+            return node;
+          });
+          
+          set({ nodes, edges: flow.edges });
           get().setFlowPath(result.filePath);
           const fileName = result.filePath.split(/[\\/]/).pop();
           if(fileName)window.electronAPI?.setTitle?.(fileName);
@@ -272,6 +392,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const node = state.nodes.find((n) => n.id === nodeId);
       if (!node) return;
     
+      // Clear previous output when executing a node
+      state.updateNodeData(nodeId, { output: undefined });
+      
       const addLog = (type: ConsoleMessage['type'], message: string) => {
         state.addConsoleMessage({
           nodeId,
@@ -291,9 +414,17 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           // For flow nodes, we execute the referenced flow file using the backend poller
           try {
             // The code property contains the path to the flow file
-            const flowPath = node.data.code;
+            let flowPath = node.data.code;
             if (!flowPath) {
               throw new Error('No flow file specified');
+            }
+            
+            // If the path is relative, convert it to absolute for execution
+            if (node.data.isRelativePath && state.flowPath) {
+              flowPath = get().convertToAbsolutePath(flowPath, state.flowPath);
+            } else if (node.data.isRelativePath) {
+              // If we have a relative path but no flowPath, we can't resolve it
+              throw new Error('Cannot resolve relative path: flow file has not been saved');
             }
             
             addLog('log', `Loading flow from: ${flowPath}`);
@@ -329,9 +460,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // Call the backend API to execute the flow
             const resultData = await (window as any).backendAPI.executeNodeJob(payload);
             
-            result = resultData.output !== '[]' ? resultData.output : null;
+            // Process the result from the flow execution
+            // The output could be any valid value, so we shouldn't filter based on string comparison
+            result = resultData.output;
             log = resultData.log;
             error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+            
+            // Ensure the node data is updated with the nested flow execution result
+            state.updateNodeData(nodeId, { output: result });
           } catch (err) {
             error = (err as Error).message;
           }

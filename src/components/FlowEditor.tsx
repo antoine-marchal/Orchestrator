@@ -35,7 +35,8 @@ import {
   TerminalSquare,
   Hash,
   MessageSquare,
-  GitBranch
+  GitBranch,
+  FilePlus
 } from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
@@ -163,6 +164,27 @@ function Flow() {
   }>(null);
   
   const [dropdownMenu, setDropdownMenu] = React.useState(false);
+  
+  // Add keyboard shortcut for new flow (CTRL+N)
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'n') {
+        event.preventDefault(); // Prevent browser's default "new window" action
+        createNewFlow();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+  
+  // Function to create a new flow
+  const createNewFlow = () => {
+    clearFlow(); // This clears nodes, edges, and sets flowPath to null
+    window.electronAPI?.setTitle?.('New Flow');
+  };
   const isValidConnection: IsValidConnection = useCallback(
     (connection) => {
       // we are using getNodes and getEdges helpers here
@@ -267,32 +289,55 @@ function Flow() {
     
     // Handle flow node type - open file dialog to select a flow file
     if (type === 'flow' && window.electronAPI?.openFlowFile) {
-      const result = await window.electronAPI.openFlowFile();
-      if (!result || !result.filePath) {
-        return; // User cancelled the file selection
-      }
-      
-      // Extract filename from the path
-      const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
-      
-      const newNode = {
-        id: `node-${Date.now()}`,
-        type: 'custom',
-        position,
-        data: {
-          label: fileName, // Use filename as the node label
-          type: 'flow',
-          code: result.filePath, // Store the filepath in the code property
-        },
-        draggable: true,
-      };
-      
-      setNodes((nds) => [...nds, newNode]);
-      closeMenus();
-      
-      // Open the selected flow file in a new window
-      if (window.electronAPI?.openFlowInNewWindow) {
-        await window.electronAPI.openFlowInNewWindow(result.filePath);
+      try {
+        const result = await window.electronAPI.openFlowFile();
+        if (!result || !result.filePath) {
+          return; // User cancelled the file selection
+        }
+        
+        // Extract filename from the path
+        const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
+        
+        // Get the current flow path from the store
+        const { flowPath } = useFlowStore.getState();
+        
+        // Determine if we should use relative or absolute path
+        let nodePath = result.filePath;
+        let isRelativePath = false;
+        
+        // If the root flow has been saved, store the path relative to it
+        if (flowPath) {
+          const { convertToRelativePath } = useFlowStore.getState();
+          nodePath = convertToRelativePath(result.filePath, flowPath);
+          isRelativePath = true;
+        }
+        
+        const newNode = {
+          id: `node-${Date.now()}`,
+          type: 'custom',
+          position,
+          data: {
+            label: fileName, // Use filename as the node label
+            type: 'flow',
+            code: nodePath, // Store the path in the code property
+            isRelativePath, // Flag indicating if the path is relative
+          },
+          draggable: true,
+        };
+        
+        setNodes((nds) => [...nds, newNode]);
+        closeMenus();
+        
+        // Open the selected flow file in a new window
+        if (window.electronAPI?.openFlowInNewWindow) {
+          try {
+            await window.electronAPI.openFlowInNewWindow(result.filePath);
+          } catch (error) {
+            alert(`Error opening flow file: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      } catch (error) {
+        alert(`Error creating flow node: ${error instanceof Error ? error.message : String(error)}`);
       }
       
       return;
@@ -364,8 +409,25 @@ function Flow() {
     if (node.data.type === 'flow') {
       if (node.data.code) {
         // If the flow node already has a file path, open it in a new window
+        // If the path is relative, convert it to absolute for opening
+        let flowPath = node.data.code;
+        const { flowPath: rootFlowPath } = useFlowStore.getState();
+        
+        if (node.data.isRelativePath && rootFlowPath) {
+          const { convertToAbsolutePath } = useFlowStore.getState();
+          flowPath = convertToAbsolutePath(flowPath, rootFlowPath);
+        } else if (node.data.isRelativePath && !rootFlowPath) {
+          // If we have a relative path but no flowPath, we can't resolve it
+          alert('Cannot open flow: the main flow file has not been saved');
+          return;
+        }
+        
         if (window.electronAPI?.openFlowInNewWindow) {
-          await window.electronAPI.openFlowInNewWindow(node.data.code);
+          try {
+            await window.electronAPI.openFlowInNewWindow(flowPath);
+          } catch (error) {
+            alert(`Error opening flow file: ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
       } else if (window.electronAPI?.openFlowFile) {
         // If no file path yet, open file dialog to select a flow file
@@ -374,15 +436,34 @@ function Flow() {
           // Extract filename from the path
           const fileName = result.filePath.split(/[\\/]/).pop() || 'Flow';
           
+          // Get the current flow path from the store
+          const { flowPath } = useFlowStore.getState();
+          
+          // Determine if we should use relative or absolute path
+          let nodePath = result.filePath;
+          let isRelativePath = false;
+          
+          // If the root flow has been saved, store the path relative to it
+          if (flowPath) {
+            const { convertToRelativePath } = useFlowStore.getState();
+            nodePath = convertToRelativePath(result.filePath, flowPath);
+            isRelativePath = true;
+          }
+          
           // Update the node with the new file path and name
           updateNodeData(node.id, {
             label: fileName,
-            code: result.filePath
+            code: nodePath,
+            isRelativePath
           });
           
           // Open the selected flow file in a new window
           if (window.electronAPI?.openFlowInNewWindow) {
-            await window.electronAPI.openFlowInNewWindow(result.filePath);
+            try {
+              await window.electronAPI.openFlowInNewWindow(result.filePath);
+            } catch (error) {
+              alert(`Error opening flow file: ${error instanceof Error ? error.message : String(error)}`);
+            }
           }
         }
       }
@@ -434,6 +515,13 @@ function Flow() {
           }}
         />
        <Panel position="top-right" className="flex gap-2">
+  <ToolbarButton
+    onClick={createNewFlow}
+    icon={FilePlus}
+    label="New Flow"
+    color="bg-teal-500 hover:bg-teal-600"
+    title="New Flow (Ctrl+N)"
+  />
   <ToolbarButton
     onClick={saveFlow}
     icon={Save}

@@ -111,7 +111,7 @@ function createMainWindow() {
   mainWindow = createWindow();
 }
 
-function startBackend() {
+function startBackend(silent=false) {
   if (backendProcess) return;
 
   // Use process.resourcesPath for production, __dirname for dev
@@ -133,10 +133,16 @@ function startBackend() {
     return;
   }
 
-  backendProcess = spawn(nodeBin, [pollerScript], {
+  const args = [pollerScript];
+  if (silent) {
+    //args.push('--silent');
+  }
+  
+  backendProcess = spawn(nodeBin, args, {
     stdio: 'inherit',
     cwd: backendDir
   });
+  
 }
 
 
@@ -158,7 +164,7 @@ app.whenReady().then(() => {
     console.log(`Running in silent mode with flow file: ${silentModeFlowPath}`);
     
     // Start the backend
-    startBackend();
+    startBackend(true);
     
     // Wait for backend to initialize
     setTimeout(async () => {
@@ -171,7 +177,6 @@ app.whenReady().then(() => {
         
         // Import the executeFlowFile function from poller.cjs
         const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
-        
         // Execute the flow file
         await executeFlowFile(silentModeFlowPath);
         

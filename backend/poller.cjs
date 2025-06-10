@@ -8,13 +8,16 @@ const OUTBOX = path.join(__dirname, "outbox");
 if (!fs.existsSync(INBOX)) fs.mkdirSync(INBOX, { recursive: true });
 if (!fs.existsSync(OUTBOX)) fs.mkdirSync(OUTBOX, { recursive: true });
 
+const isSilent = process.argv.includes('--silent');
+
+
 /**
  * Execute a flow file directly from the command line
  * @param {string} flowFilePath - Path to the flow file to execute
  * @param {any} [input=null] - Optional input data for the flow
  * @returns {Promise<any>} - The result of the flow execution
  */
-async function executeFlowFile(flowFilePath, input = null) {
+async function executeFlowFile(flowFilePath, input = null, flowPath = []) {
   return new Promise((resolve, reject) => {
     try {
       // Check if the flow file exists
@@ -22,6 +25,16 @@ async function executeFlowFile(flowFilePath, input = null) {
         reject(new Error(`Flow file not found: ${flowFilePath}`));
         return;
       }
+      
+      // Check for circular references
+      if (flowPath.includes(flowFilePath)) {
+        console.warn(`Circular reference detected in flow execution: ${flowFilePath}`);
+        resolve(null); // Return null for circular references instead of rejecting
+        return;
+      }
+      
+      // Add current flow to the path
+      const currentFlowPath = [...flowPath, flowFilePath];
 
       // Read and parse the flow file
       const flowContent = fs.readFileSync(flowFilePath, 'utf8');
@@ -61,6 +74,9 @@ async function executeFlowFile(flowFilePath, input = null) {
       const nodeResults = {};
       const visited = new Set();
       
+      // Store the flow path in the visited object for reference in nested flows
+      visited.flowPath = currentFlowPath;
+      
       // Function to execute a node and its dependencies recursively
       const executeNodeInFlow = async (nodeId) => {
         if (visited.has(nodeId)) {
@@ -92,7 +108,70 @@ async function executeFlowFile(flowFilePath, input = null) {
           return node.data.value;
         }
         
-        // Execute the node job
+        // Special handling for flow nodes to ensure nested flow execution
+        if (node.data.type === 'flow') {
+          // Get the path to the nested flow file
+          const nestedFlowPath = node.data.code || '';
+          
+          // Check if we have a valid flow path
+          if (!nestedFlowPath) {
+            throw new Error(`Flow node ${nodeId} has no flow file path specified`);
+          }
+          
+          // Execute the nested flow directly instead of creating a job
+          // This ensures proper flow path tracking
+          try {
+            const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, visited.flowPath);
+            
+            // Log node execution results to console
+            console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
+            console.log(`Output: ${JSON.stringify(nestedFlowResult, null, 2)}`);
+            console.log('---');
+            
+            nodeResults[nodeId] = nestedFlowResult;
+            return nestedFlowResult;
+          } catch (err) {
+            console.error(`Error executing nested flow: ${err.message}`);
+            throw err;
+          }
+          
+          // Execute the nested flow job
+          const nestedFlowJobPath = path.join(INBOX, `${nestedFlowJobId}.json`);
+          fs.writeFileSync(nestedFlowJobPath, JSON.stringify(nestedFlowJob), 'utf8');
+          
+          // Wait for the nested flow to complete
+          return new Promise((resolveNode, rejectNode) => {
+            const checkResult = () => {
+              const resultPath = path.join(OUTBOX, `${nestedFlowJobId}.result.json`);
+              if (fs.existsSync(resultPath)) {
+                try {
+                  const resultContent = fs.readFileSync(resultPath, 'utf8');
+                  const result = JSON.parse(resultContent);
+                  fs.unlinkSync(resultPath); // Clean up
+                  
+                  // Log node execution results to console in silent mode
+                  console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
+                  if (result.log) console.log(`Log: ${result.log}`);
+                  if (result.error) console.error(`Error: ${result.error}`);
+                  console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
+                  console.log('---');
+                  
+                  nodeResults[nodeId] = result.output;
+                  resolveNode(result.output);
+                } catch (err) {
+                  rejectNode(err);
+                }
+              } else {
+                setTimeout(checkResult, 100); // Check again after 100ms
+              }
+            };
+            
+            // Start checking for results
+            setTimeout(checkResult, 100);
+          });
+        }
+        
+        // For other node types, create a temporary job file
         const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const nodeJob = {
           id: nodeJobId,
@@ -143,11 +222,14 @@ async function executeFlowFile(flowFilePath, input = null) {
           console.log(`Executing flow: ${flowFilePath}`);
           const results = [];
           for (const endNode of endNodes) {
-            const result = await executeNodeInFlow(endNode.id);
-            results.push(result);
+            if(endNode.type !== 'comment'){
+              const result = await executeNodeInFlow(endNode.id);
+              results.push(result);
+            }
           }
           
           // Return the result of the last end node
+          // Make sure we're not returning a string representation of an empty array
           const finalResult = results.length > 0 ? results[results.length - 1] : null;
           console.log('\nFlow execution completed successfully.');
           console.log(`Final result: ${JSON.stringify(finalResult, null, 2)}`);
@@ -194,6 +276,22 @@ function processJobFile(filePath) {
             return;
         }
         
+        // Initialize flow path if not present
+        const flowPath = job.flowPath || [];
+        
+        // Check for circular references in flow execution
+        if (flowPath.includes(flowFilePath)) {
+            finish({
+                output: null,
+                log: `Circular reference detected in flow execution: ${flowFilePath}`,
+                error: `Circular reference detected: ${flowFilePath} is already in the execution path`
+            });
+            return;
+        }
+        
+        // Add current flow to the path
+        const currentFlowPath = [...flowPath, flowFilePath];
+        
         try {
             // Read and parse the flow file
             const flowContent = fs.readFileSync(flowFilePath, 'utf8');
@@ -219,7 +317,7 @@ function processJobFile(filePath) {
             });
             
             // Find nodes with no outgoing edges (end nodes)
-            const endNodes = flow.nodes.filter(node => 
+            const endNodes = flow.nodes.filter(node =>
                 !flow.edges.some(edge => edge.source === node.id)
             );
             
@@ -230,6 +328,9 @@ function processJobFile(filePath) {
             // Track executed nodes and their results
             const nodeResults = {};
             const visited = new Set();
+            
+            // Initialize flow execution path from parent flow (if any)
+            visited.flowPath = currentFlowPath;
             
             // Function to execute a node and its dependencies recursively
             const executeNodeInFlow = async (nodeId) => {
@@ -256,7 +357,44 @@ function processJobFile(filePath) {
                     nodeInput = depResults.length === 1 ? depResults[0] : depResults;
                 }
                 
-                // Create a temporary job file for this node
+                // For constant nodes, just use the value directly
+                if (node.data.type === 'constant') {
+                    nodeResults[nodeId] = node.data.value;
+                    return node.data.value;
+                }
+                
+                // Special handling for flow nodes to ensure nested flow execution
+                if (node.data.type === 'flow') {
+                    // Get the path to the nested flow file
+                    const nestedFlowPath = node.data.code || '';
+                    
+                    // Check if we have a valid flow path
+                    if (!nestedFlowPath) {
+                        throw new Error(`Flow node ${nodeId} has no flow file path specified`);
+                    }
+                    
+                    // Check for circular references
+                    if (visited.flowPath.includes(nestedFlowPath)) {
+                        console.warn(`Circular reference detected in flow execution: ${nestedFlowPath}`);
+                        nodeResults[nodeId] = null;
+                        return null; // Prevent infinite loop by returning null for circular references
+                    }
+                    
+                    try {
+                        // Execute the nested flow directly using the executeFlowFile function
+                        // This ensures consistent flow path tracking
+                        const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, visited.flowPath);
+                        
+                        // Store the output of the nested flow
+                        nodeResults[nodeId] = nestedFlowResult;
+                        return nestedFlowResult;
+                    } catch (err) {
+                        console.error(`Error executing nested flow: ${err.message}`);
+                        throw err;
+                    }
+                }
+                
+                // For other node types, create a temporary job file
                 const nodeJobId = `flow-${id}-${nodeId}-${Date.now()}`;
                 const nodeJob = {
                     id: nodeJobId,
@@ -264,12 +402,6 @@ function processJobFile(filePath) {
                     type: node.data.type,
                     input: nodeInput
                 };
-                
-                // For constant nodes, just use the value directly
-                if (node.data.type === 'constant') {
-                    nodeResults[nodeId] = node.data.value;
-                    return node.data.value;
-                }
                 
                 // Execute the node job
                 const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
@@ -304,14 +436,20 @@ function processJobFile(filePath) {
             const results = [];
             (async () => {
                 try {
+                    // Execute all end nodes to ensure the entire flow is processed
                     for (const endNode of endNodes) {
-                        const result = await executeNodeInFlow(endNode.id);
-                        results.push(result);
+                        if(endNode.type !== 'comment'){
+                          const result = await executeNodeInFlow(endNode.id);
+                          results.push(result);
+                        }
                     }
                     
                     // Return the result of the last end node
+                    // Make sure we're not returning a string representation of an empty array
+                    const finalResult = results.length > 0 ? results[results.length - 1] : null;
+                    console.log(finalResult);
                     finish({
-                        output: results.length > 0 ? results[results.length - 1] : null,
+                        output: finalResult,
                         log: `Successfully executed flow with ${flow.nodes.length} nodes`,
                         error: null
                     });
@@ -360,7 +498,7 @@ function processJobFile(filePath) {
             finish({ output: null, log: "Failed to write Groovy script: " + err.message });
             return;
         }
-        exec(`java -jar groovyExec.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
+        exec(`java -jar ${isSilent?`resources/backend/`:``}groovyExec.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
             fs.unlink(tempGroovyPath, () => { });
         
             let outputValue = null;

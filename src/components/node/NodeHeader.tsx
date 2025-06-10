@@ -37,8 +37,18 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
   const openFlowNodeInNewWindow = async() => {
       if (data.code) {
         // If the flow node already has a file path, open it in a new window
+        let flowPath = data.code;
+        
+        // If the path is relative, convert it to absolute for opening
+        if (data.isRelativePath) {
+          const { flowPath: rootFlowPath, convertToAbsolutePath } = useFlowStore.getState();
+          if (rootFlowPath) {
+            flowPath = convertToAbsolutePath(flowPath, rootFlowPath);
+          }
+        }
+        
         if (window.electronAPI?.openFlowInNewWindow) {
-          await window.electronAPI.openFlowInNewWindow(data.code);
+          await window.electronAPI.openFlowInNewWindow(flowPath);
         }
       }
   }
