@@ -31,6 +31,7 @@ interface FlowState {
   history: Array<{ nodes: Node[]; edges: Edge[] }>;
   historyIndex: number;
   maxHistorySize: number;
+  starterNodeId: string | null;
   setFlowPath: (path: string | null) => void;
   setNodeExecutionTimeout: (timeout: number) => void;
   convertToRelativePath: (absolutePath: string, basePath: string) => string;
@@ -38,6 +39,7 @@ interface FlowState {
   setOutputZoneActive: (active: boolean) => void;
   setTitleEditing: (editing: boolean) => void;
   setMouseOverConsole: (isOver: boolean) => void;
+  setStarterNode: (nodeId: string) => void;
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
   updatePanOnDrag: (isDraggable: boolean) => void;
   updateZoomOnScroll: (isDraggable: boolean) => void;
@@ -45,7 +47,7 @@ interface FlowState {
   setEdges: (edges: Edge[] | ((edges: Edge[]) => Edge[])) => void;
   addNode: (node: Node) => void;
   removeNode: (nodeId: string) => void;
-  updateNodeData: (nodeId: string, data: any) => void;
+  updateNodeData: (nodeId: string, data: any, addHistory?: boolean) => void;
   toggleConsole: () => void;
   setFullscreen: () => void;
   addConsoleMessage: (message: ConsoleMessage) => void;
@@ -117,11 +119,50 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   history: [],
   historyIndex: -1,
   maxHistorySize: 100,
+  starterNodeId: null,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
   setOutputZoneActive: (active: boolean) => set({ isOutputZoneActive: active }),
   setTitleEditing: (editing: boolean) => set({ isTitleEditing: editing }),
   setMouseOverConsole: (isOver: boolean) => set({ isMouseOverConsole: isOver }),
+  
+  // Set a node as the starter node for flow execution
+  setStarterNode: (nodeId: string) => {
+    const { nodes, starterNodeId } = get();
+    
+    // Add current state to history before making changes
+    get().addToHistory();
+    
+    // If the clicked node is already the starter, unset it
+    if (starterNodeId === nodeId) {
+      set({ starterNodeId: null });
+      
+      // Update all nodes to remove the starter flag
+      set((state) => ({
+        nodes: state.nodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            isStarterNode: false
+          }
+        }))
+      }));
+    } else {
+      // Set the new starter node
+      set({ starterNodeId: nodeId });
+      
+      // Update all nodes to set the starter flag only on the selected node
+      set((state) => ({
+        nodes: state.nodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            isStarterNode: node.id === nodeId
+          }
+        }))
+      }));
+    }
+  },
 
   // History management functions
   canUndo: () => {
@@ -592,14 +633,45 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const state = get();
     const visited = new Set<string>();
     const executed = new Set<string>();
-
+    
+    // Check if we have a starter node
+    const { starterNodeId } = state;
+    
+    // If we have a starter node, clear outputs from all nodes that come before it
+    if (starterNodeId) {
+      // Clear outputs from all nodes that are not descendants of the starter node
+      state.nodes.forEach(node => {
+        if (node.id !== starterNodeId && !isNodeDescendantOfStarter(node.id, starterNodeId, state.nodes, state.edges)) {
+          // Clear the output without adding to history
+          state.updateNodeData(node.id, { output: undefined }, false);
+        }
+      });
+    }
+    
     const executeNodeInFlow = async (nodeId: string) => {
       if (visited.has(nodeId)) return;
       visited.add(nodeId);
+      
+      // If we have a starter node and this node is not the starter node or a descendant,
+      // we should skip it completely
+      if (starterNodeId && !isNodeDescendantOfStarter(nodeId, starterNodeId, state.nodes, state.edges)) {
+        return;
+      }
 
-      // Execute all input nodes first
+      // Execute all input nodes first, but only if they're valid to execute
       const inputEdges = state.edges.filter(e => e.target === nodeId);
       for (const edge of inputEdges) {
+        // If we have a starter node and this is the starter node,
+        // we don't need to execute its input nodes at all
+        if (starterNodeId && nodeId === starterNodeId) {
+          continue;
+        }
+        
+        // If we have a starter node, only execute input nodes that are descendants of the starter
+        if (starterNodeId && !isNodeDescendantOfStarter(edge.source, starterNodeId, state.nodes, state.edges)) {
+          continue;
+        }
+        
         await executeNodeInFlow(edge.source);
       }
 
@@ -608,15 +680,77 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         executed.add(nodeId);
       }
     };
+    
+    // Helper function to check if a node is the starter node or a descendant of it
+    function isNodeDescendantOfStarter(
+      nodeId: string,
+      starterId: string,
+      nodes: Node[],
+      edges: Edge[]
+    ): boolean {
+      // If this is the starter node, return true
+      if (nodeId === starterId) {
+        return true;
+      }
+      
+      // Create a queue for BFS
+      const queue: string[] = [starterId];
+      const visited = new Set<string>();
+      
+      // Perform BFS starting from the starter node
+      while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        
+        if (visited.has(currentId)) {
+          continue;
+        }
+        
+        visited.add(currentId);
+        
+        // Find all outgoing edges from the current node
+        const outgoingEdges = edges.filter(e => e.source === currentId);
+        
+        for (const edge of outgoingEdges) {
+          if (edge.target === nodeId) {
+            // Found the target node as a descendant
+            return true;
+          }
+          
+          // Add the target to the queue for further exploration
+          queue.push(edge.target);
+        }
+      }
+      
+      // If we get here, the node is not a descendant
+      return false;
+    }
 
     // Find all end nodes (nodes with no outgoing edges)
-    const endNodes = state.nodes.filter(node => 
+    const endNodes = state.nodes.filter(node =>
       !state.edges.some(edge => edge.source === node.id)
     );
-
-    // Execute the flow starting from each end node
-    for (const node of endNodes) {
-      await executeNodeInFlow(node.id);
+    
+    // If we have a starter node, start execution from there
+    if (starterNodeId) {
+      // Start execution directly from the starter node
+      await executeNodeInFlow(starterNodeId);
+      
+      // Find all end nodes that are descendants of the starter node
+      const starterEndNodes = endNodes.filter(node =>
+        isNodeDescendantOfStarter(node.id, starterNodeId, state.nodes, state.edges)
+      );
+      
+      // Execute all end nodes that are descendants of the starter node
+      for (const node of starterEndNodes) {
+        if (node.id !== starterNodeId) { // Skip if it's the starter node itself (already executed)
+          await executeNodeInFlow(node.id);
+        }
+      }
+    } else {
+      // No starter node, execute the flow normally starting from each end node
+      for (const node of endNodes) {
+        await executeNodeInFlow(node.id);
+      }
     }
   },
   moveConnection: (nodeId, type, edgeId, direction) =>
@@ -850,7 +984,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         state.setNodeLoading(nodeId, false);
         if (log) addLog('log', prettyFormat(log));
-        if (result !== undefined && result !== null && 'output' in result) addLog('output', prettyFormat(result.output));
+        if (result !== undefined && result !== null && typeof result === 'object' && 'output' in result) addLog('output', prettyFormat(result.output));
         else if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
         if (error) addLog('error', prettyFormat(error));
         

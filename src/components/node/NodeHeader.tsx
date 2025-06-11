@@ -11,7 +11,8 @@ import {
   Coffee,
   Terminal,
   TerminalSquare,
-  MessageSquare
+  MessageSquare,
+  Flag
 } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
@@ -33,7 +34,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
   onExecute,
   onDelete,
 }) => {
-  const { openEditorModal, updateNodeDraggable, updatePanOnDrag } = useFlowStore();
+  const { openEditorModal, updateNodeDraggable, updatePanOnDrag, setStarterNode } = useFlowStore();
   const openFlowNodeInNewWindow = async() => {
       if (data.code) {
         // If the flow node already has a file path, open it in a new window
@@ -122,6 +123,13 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
             onClick={onExecute}
           >
             <Play className="w-4 h-4 text-green-500" />
+          </button>
+          <button
+            className={`p-1 hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-700' : ''}`}
+            onClick={() => setStarterNode(nodeId)}
+            title={data.isStarterNode ? "Unset as starter node" : "Set as starter node"}
+          >
+            <Flag className={`w-4 h-4 ${data.isStarterNode ? 'text-yellow-500' : 'text-gray-500'}`} />
           </button>
           <button
             className="p-1 hover:bg-gray-700 rounded"

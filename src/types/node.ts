@@ -10,6 +10,7 @@ export interface NodeData {
   output?: any;
   executionTime?: number; // Execution time in milliseconds
   isRelativePath?: boolean; // Indicates if the path stored in code is relative
+  isStarterNode?: boolean; // Indicates if this node is the starter node for flow execution
 }
 
 export interface ConnectionItemProps {

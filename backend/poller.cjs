@@ -116,7 +116,7 @@ function parseFlowFile(flowFilePath) {
  * @param {boolean} [isTopLevel=true] - Whether this is a top-level flow execution
  * @returns {Promise<any>} - The result of the flow execution
  */
-async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true) {
+async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true) {
   return new Promise((resolve, reject) => {
     try {
       // Check for circular references
@@ -137,6 +137,10 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
       // Parse the flow file
       const { flow, nodeMap, dependencies, endNodes } = parseFlowFile(flowFilePath);
       
+      // Check if there's a starter node in the flow
+      const starterNode = flow.nodes.find(node => node.data && node.data.isStarterNode);
+      const starterNodeId = starterNode ? starterNode.id : null;
+      
       // Track executed nodes and their results
       const nodeResults = {};
       const visited = new Set();
@@ -150,6 +154,45 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
       // Log the flow execution start
       console.log(`Executing flow: ${flowFilePath}`);
       
+      // Function to check if a node is the starter node or a descendant of it
+      function isNodeDescendantOfStarter(nodeId, starterId, nodes, edges) {
+        // If this is the starter node, return true
+        if (nodeId === starterId) {
+          return true;
+        }
+        
+        // Create a queue for BFS
+        const queue = [starterId];
+        const visitedNodes = new Set();
+        
+        // Perform BFS starting from the starter node
+        while (queue.length > 0) {
+          const currentId = queue.shift();
+          
+          if (visitedNodes.has(currentId)) {
+            continue;
+          }
+          
+          visitedNodes.add(currentId);
+          
+          // Find all outgoing edges from the current node
+          const outgoingEdges = edges.filter(e => e.source === currentId);
+          
+          for (const edge of outgoingEdges) {
+            if (edge.target === nodeId) {
+              // Found the target node as a descendant
+              return true;
+            }
+            
+            // Add the target to the queue for further exploration
+            queue.push(edge.target);
+          }
+        }
+        
+        // If we get here, the node is not a descendant
+        return false;
+      }
+      
       // Function to execute a node and its dependencies recursively
       const executeNodeInFlow = async (nodeId) => {
         if (visited.has(nodeId)) {
@@ -157,9 +200,25 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
         }
         visited.add(nodeId);
         
-        // Execute all dependencies first
+        // If we have a starter node and respect it, and this node is not the starter node or a descendant,
+        // we should skip it
+        if (respectStarterNode && starterNodeId && !isNodeDescendantOfStarter(nodeId, starterNodeId, flow.nodes, flow.edges)) {
+          return;
+        }
+        
+        // Execute all dependencies first, but only if they're valid to execute
         const deps = dependencies[nodeId] || [];
         for (const depId of deps) {
+          // If we have a starter node and this is the starter node, we don't need to execute its dependencies
+          if (respectStarterNode && starterNodeId && nodeId === starterNodeId) {
+            continue;
+          }
+          
+          // If we have a starter node, only execute dependencies that are descendants of the starter
+          if (respectStarterNode && starterNodeId && !isNodeDescendantOfStarter(depId, starterNodeId, flow.nodes, flow.edges)) {
+            continue;
+          }
+          
           await executeNodeInFlow(depId);
         }
         
@@ -170,7 +229,13 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
         
         // Get inputs from dependencies
         let nodeInput = input; // Default to the flow's input
-        if (deps.length > 0) {
+        
+        // Special case: if this is the starter node, always use the flow's input
+        // This ensures that inputs passed to flow nodes are properly passed to starter nodes
+        if (starterNodeId && nodeId === starterNodeId) {
+          // Keep nodeInput as the flow's input
+        } else if (deps.length > 0) {
+          // For non-starter nodes, get inputs from dependencies as usual
           const depResults = deps.map(depId => nodeResults[depId]);
           nodeInput = depResults.length === 1 ? depResults[0] : depResults;
         }
@@ -274,9 +339,15 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults) {
     const { restore: restoreNestedConsole } = createLogCollector();
     
     try {
+      // First, check if the referenced flow has a starter node
+      // We need to parse the flow file to check for a starter node
+      const { flow } = parseFlowFile(nestedFlowPath);
+      const starterNode = flow.nodes.find(node => node.data && node.data.isStarterNode);
+      
       // Execute the nested flow with the current flow path to track circular references
       // Pass false for isTopLevel to indicate this is not a master flow
-      const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, flowPath, false);
+      // If there's a starter node, we'll pass the input directly to it
+      const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, flowPath, false, true);
       
       // Calculate execution time
       const executionTime = Date.now() - startTime;
@@ -434,7 +505,7 @@ function processJobFile(filePath) {
           try {
             // Execute the flow file
             // Pass false for isTopLevel since this is being executed from a job
-            const flowResult = await executeFlowFile(flowFilePath, input, flowPath, false);
+            const flowResult = await executeFlowFile(flowFilePath, input, flowPath, false, true);
             
             // Restore original console methods and get logs
             restoreConsole();
