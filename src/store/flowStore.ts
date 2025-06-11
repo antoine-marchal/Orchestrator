@@ -18,12 +18,14 @@ interface FlowState {
   consoleMessages: ConsoleMessage[];
   showConsole: boolean;
   fullscreen: boolean;
+  nodeExecutionTimeout: number;
   editorModal: {
     isOpen: boolean;
     nodeId: string | null;
   };
   flowPath?: string | null; // add this!
   setFlowPath: (path: string | null) => void;
+  setNodeExecutionTimeout: (timeout: number) => void;
   convertToRelativePath: (absolutePath: string, basePath: string) => string;
   convertToAbsolutePath: (relativePath: string, basePath: string) => string;
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
@@ -49,6 +51,7 @@ interface FlowState {
   openEditorModal: (nodeId: string) => void;
   closeEditorModal: () => void;
   setNodeLoading: (nodeId: string, loading: boolean) => void;
+  clearAllOutputs: () => void;
 }
 function prettyFormat(val: any): string {
   if (val == null) return '';
@@ -78,6 +81,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   consoleMessages: [],
   showConsole: false,
   fullscreen: false,
+  nodeExecutionTimeout: 30000, // Default timeout: 30 seconds
   editorModal: {
     isOpen: false,
     nodeId: null,
@@ -86,6 +90,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   panOnDrag: true,
   flowPath: null,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
+  setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
 
   clearFlow: () => {
     set({ nodes: [], edges: [], flowPath: null });
@@ -143,6 +148,15 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       showConsole: true
     })),
   clearConsole: () => set({ consoleMessages: [] }),
+  clearAllOutputs: () => set((state) => ({
+    nodes: state.nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        output: undefined
+      }
+    }))
+  })),
   removeConnection: (edgeId) =>
     set((state) => ({
       edges: state.edges.filter((edge) => edge.id !== edgeId)
@@ -392,8 +406,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const node = state.nodes.find((n) => n.id === nodeId);
       if (!node) return;
     
-      // Clear previous output when executing a node
-      state.updateNodeData(nodeId, { output: undefined });
+      // We don't clear previous output anymore to preserve it during execution
+      // The output will be updated with new results when execution completes
       
       const addLog = (type: ConsoleMessage['type'], message: string) => {
         state.addConsoleMessage({
@@ -452,7 +466,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
               code: flowPath,
               type: 'flow',
-              input: processedInputs
+              input: processedInputs,
+              timeout: get().nodeExecutionTimeout
             };
             
             addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
@@ -463,7 +478,35 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // Process the result from the flow execution
             // The output could be any valid value, so we shouldn't filter based on string comparison
             result = resultData.output;
+            
+            // Process logs from nested flow execution
+            // These logs will include the [Nested] prefix added by the backend
             log = resultData.log;
+            
+            // If we have logs from nested flow execution, process them to display properly
+            if (log && typeof log === 'string' && log.includes('[Nested]')) {
+              // Split the log by lines to process each nested log entry
+              const logLines = log.split('\n');
+              
+              // Process each line of the log
+              logLines.forEach(line => {
+                if (line.includes('[Nested]')) {
+                  // Extract the nested log message
+                  const nestedLogMessage = line.substring(line.indexOf('[Nested]') + 9).trim();
+                  
+                  // Determine if it's an error or regular log
+                  if (nestedLogMessage.startsWith('ERROR:')) {
+                    // It's an error log from a nested node
+                    const errorMessage = nestedLogMessage.substring(7).trim();
+                    addLog('error', `Nested: ${errorMessage}`);
+                  } else {
+                    // It's a regular log from a nested node
+                    addLog('log', `Nested: ${nestedLogMessage}`);
+                  }
+                }
+              });
+            }
+            
             error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
             
             // Ensure the node data is updated with the nested flow execution result
@@ -519,7 +562,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
                 code: node.data.code,
                 type: node.data.type,
-                input: processedInputs
+                input: processedInputs,
+                timeout: get().nodeExecutionTimeout
               };
               // CALL THE EXPOSED API FROM PRELOAD
               const resultData = await (window as any).backendAPI.executeNodeJob(payload);

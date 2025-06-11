@@ -24,13 +24,30 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
   const [maxHeight, setMaxHeight] = useState(10000);
   const [nodeHeight, setNodeHeight] = useState(148);
   const contentRef = useRef<HTMLDivElement>(null);
+  
+  // Update node dimensions when content changes
   useLayoutEffect(() => {
     if (contentRef.current) {
       setMinHeight(contentRef.current.offsetHeight);
       setMaxHeight(contentRef.current.offsetHeight);
       setNodeHeight(contentRef.current.offsetHeight);
     }
-  }, [data, isEditing, expanded, connecting, inputEdges.length, outputEdges.length]);
+  }, [data, data.output, isEditing, expanded, connecting, inputEdges.length, outputEdges.length]);
+  
+  // Additional effect specifically for output changes to ensure height refresh
+  useLayoutEffect(() => {
+    if (contentRef.current && data.output !== undefined) {
+      // Small delay to ensure DOM has updated with new output content
+      const timer = setTimeout(() => {
+        if (contentRef.current) {
+          setMinHeight(contentRef.current.offsetHeight);
+          setMaxHeight(contentRef.current.offsetHeight);
+          setNodeHeight(contentRef.current.offsetHeight);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [data.output]);
 
   return (
     <div className={`relative ${data.type === 'flow' ? 'bg-emerald-900/80' : 'bg-gray-800'} rounded-lg ${

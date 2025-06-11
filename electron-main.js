@@ -148,8 +148,15 @@ function startBackend(silent=false) {
 
 function stopBackend() {
   if (backendProcess) {
-    backendProcess.kill();
-    backendProcess = undefined;
+    // Use tree-kill to ensure all child processes are terminated
+    kill(backendProcess.pid, 'SIGTERM', (err) => {
+      if (err) {
+        console.error('Error killing backend process:', err);
+      } else {
+        console.log('Backend process terminated successfully');
+      }
+      backendProcess = undefined;
+    });
   }
 }
 
@@ -180,11 +187,16 @@ app.whenReady().then(() => {
         // Execute the flow file
         await executeFlowFile(silentModeFlowPath);
         
+        // Stop the backend process before exiting
+        stopBackend();
+        
         // Exit the application after execution
         console.log('Flow execution completed. Exiting...');
         app.exit(0);
       } catch (error) {
         console.error(`Error executing flow in silent mode: ${error.message}`);
+        // Make sure to stop the backend even if there's an error
+        stopBackend();
         app.exit(1);
       }
     }, 1000); // Give the backend a second to start up
@@ -221,7 +233,7 @@ ipcMain.handle('execute-node-job', async (event, payload) => {
   await fsp.writeFile(jobFile, JSON.stringify(payload, null, 2), 'utf8');
 
   // Wait for result
-  let waited = 0, timeout = 30000;
+  let waited = 0, timeout = payload.timeout || 30000;
   while (!fs.existsSync(resultFile)) {
     if (waited > timeout) throw new Error("Timeout waiting for backend result.");
     await new Promise(res => setTimeout(res, 100));

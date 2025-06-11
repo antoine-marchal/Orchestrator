@@ -51,13 +51,20 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
                   (expanded ? "max-h-[80vh]" : "max-h-64") +
                   " overflow-y-auto select-text"
                 }
+                key={`flow-output-${nodeId}-${Date.now()}`} // Force re-render when output changes
               >
                 Output: <br />
                 {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
               </div>
               <button
                 className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
-                onClick={() => { setExpanded((e) => !e); }}
+                onClick={() => {
+                  setExpanded((e) => !e);
+                  // Force parent component to recalculate height after expansion toggle
+                  setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                  }, 10);
+                }}
                 aria-label={expanded ? "Collapse output" : "Expand output"}
               >
                 {expanded ? "🔼" : "🔽"}
@@ -90,13 +97,20 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
           (expanded ? "max-h-[80vh]" : "max-h-64") +
           " overflow-y-auto select-text"
         }
+        key={`output-${nodeId}-${Date.now()}`} // Force re-render when output changes
       >
         Output: <br />
         {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
       </div>
       <button
-        className="absolute right-5 top-0 bg-gray-900  rounded hover:bg-gray-800"
-        onClick={() => { setExpanded((e) => !e); }}
+        className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
+        onClick={() => {
+          setExpanded((e) => !e);
+          // Force parent component to recalculate height after expansion toggle
+          setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+          }, 10);
+        }}
         aria-label={expanded ? "Collapse output" : "Expand output"}
       >
         {expanded ? "🔼" : "🔽"}

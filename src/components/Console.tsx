@@ -1,14 +1,26 @@
 import React from 'react';
 import { useFlowStore } from '../store/flowStore';
-import { Terminal, X, Trash2, Maximize2, Minimize2 } from 'lucide-react';
+import { Terminal, X, Trash2, Maximize2, Minimize2, Clock } from 'lucide-react';
 
 const Console: React.FC = () => {
-  const { consoleMessages, showConsole, fullscreen, setFullscreen, toggleConsole, clearConsole, nodes } = useFlowStore();
+  const {
+    consoleMessages,
+    showConsole,
+    fullscreen,
+    setFullscreen,
+    toggleConsole,
+    clearConsole,
+    nodes,
+    nodeExecutionTimeout,
+    setNodeExecutionTimeout
+  } = useFlowStore();
 
   const consoleRef = React.useRef<HTMLDivElement>(null);
   const [visibleTypes, setVisibleTypes] = React.useState<string[]>(['input', 'log', 'output', 'error']);
-  const [dropdownOpen, setDropdownOpen] = React.useState(false);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
+  const [logDropdownOpen, setLogDropdownOpen] = React.useState(false);
+  const [timeoutDropdownOpen, setTimeoutDropdownOpen] = React.useState(false);
+  const logDropdownRef = React.useRef<HTMLDivElement>(null);
+  const timeoutDropdownRef = React.useRef<HTMLDivElement>(null);
   function toggleLogType(type: string) {
     setVisibleTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
@@ -20,19 +32,28 @@ const Console: React.FC = () => {
     }
   }, [consoleMessages]);
   React.useEffect(() => {
-    if (!dropdownOpen) return;
+    if (!logDropdownOpen && !timeoutDropdownOpen) return;
     function handler(e: MouseEvent) {
-      // If click is outside the dropdown, close it
+      // If click is outside the dropdowns, close them
       if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
+        logDropdownOpen &&
+        logDropdownRef.current &&
+        !logDropdownRef.current.contains(e.target as Node)
       ) {
-        setDropdownOpen(false);
+        setLogDropdownOpen(false);
+      }
+      
+      if (
+        timeoutDropdownOpen &&
+        timeoutDropdownRef.current &&
+        !timeoutDropdownRef.current.contains(e.target as Node)
+      ) {
+        setTimeoutDropdownOpen(false);
       }
     }
     window.addEventListener('mousedown', handler);
     return () => window.removeEventListener('mousedown', handler);
-  }, [dropdownOpen]);
+  }, [logDropdownOpen, timeoutDropdownOpen]);
 
   const getNodeLabel = (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -99,8 +120,49 @@ const Console: React.FC = () => {
             <Trash2 className="w-4 h-4" />
           </button>
 
+          {/* Timeout Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setTimeoutDropdownOpen((v) => !v);
+                setLogDropdownOpen(false);
+              }}
+              className="p-1 hover:bg-gray-700 rounded flex items-center"
+              title="Node execution timeout"
+            >
+              <Clock className="w-4 h-4" />
+              <span className="ml-1 text-xs">{nodeExecutionTimeout / 1000}s</span>
+            </button>
+            {timeoutDropdownOpen && (
+              <div
+                ref={timeoutDropdownRef}
+                className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50"
+              >
+                <div className="py-1 px-2 text-xs text-gray-400 border-b border-gray-700">Execution Timeout</div>
+                {[5, 10, 30, 60, 120, 300, 600, 1200].map((seconds) => (
+                  <button
+                    key={seconds}
+                    className={`w-full text-left px-3 py-1 hover:bg-gray-700 ${
+                      nodeExecutionTimeout === seconds * 1000 ? 'bg-gray-700' : ''
+                    }`}
+                    onClick={() => {
+                      setNodeExecutionTimeout(seconds * 1000);
+                      setTimeoutDropdownOpen(false);
+                    }}
+                  >
+                    {seconds} seconds
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Log Level Dropdown */}
           <button
-            onClick={() => setDropdownOpen((v) => !v)}
+            onClick={() => {
+              setLogDropdownOpen((v) => !v);
+              setTimeoutDropdownOpen(false);
+            }}
             className="p-1 hover:bg-gray-700 rounded"
             title="Log level filter"
           >
@@ -108,8 +170,8 @@ const Console: React.FC = () => {
               <path d="M3 7h18M6 12h12M10 17h4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          {dropdownOpen && (
-            <div ref={dropdownRef} className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50">
+          {logDropdownOpen && (
+            <div ref={logDropdownRef} className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50">
               {LOG_TYPES.map((item) => (
                 <label key={item.value} className="flex items-center px-3 py-1 cursor-pointer hover:bg-gray-700">
                   <input

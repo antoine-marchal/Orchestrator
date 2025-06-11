@@ -73,8 +73,8 @@
         "output": "9222"
       },
       "draggable": true,
-      "width": 429,
-      "height": 137,
+      "width": 325,
+      "height": 173,
       "selected": false,
       "positionAbsolute": {
         "x": 0,
@@ -129,6 +129,30 @@
         "x": 1680,
         "y": 255
       }
+    },
+    {
+      "id": "node-1749595176678",
+      "type": "custom",
+      "position": {
+        "x": 2415,
+        "y": 210
+      },
+      "data": {
+        "label": "Groovy",
+        "type": "groovy",
+        "language": "groovy",
+        "code": "println \"beginning processing with $input\"\noutput= input",
+        "output": "[[args:[:], data:{\"foo\":\"bar\",\"time\":1749385157214}, files:[:], form:[:], headers:[Accept:*/*, Accept-Encoding:gzip, deflate, br, zstd, Accept-Language:en-US,en;q=0.9, Content-Length:34, Content-Type:application/json, Host:httpbin.org, Origin:https://example.com, Priority:u=1, i, Referer:https://example.com/, Sec-Ch-Ua:\"Microsoft Edge\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\", Sec-Ch-Ua-Mobile:?0, Sec-Ch-Ua-Platform:\"Windows\", Sec-Fetch-Dest:empty, Sec-Fetch-Mode:cors, Sec-Fetch-Site:cross-site, User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0, X-Amzn-Trace-Id:Root=1-68457fc4-5d0e98da121bd87e77b2085d], json:[foo:bar, time:1749385157214], origin:88.182.6.36, url:https://httpbin.org/post], Kill all running Edge processes\r\n]"
+      },
+      "draggable": true,
+      "width": 1384,
+      "height": 350,
+      "selected": true,
+      "dragging": false,
+      "positionAbsolute": {
+        "x": 2415,
+        "y": 210
+      }
     }
   ],
   "edges": [
@@ -170,6 +194,32 @@
       "target": "node-1749385112247",
       "targetHandle": null,
       "id": "e1749385152847"
+    },
+    {
+      "type": "smoothstep",
+      "animated": true,
+      "style": {
+        "stroke": "#64748b",
+        "strokeWidth": 2
+      },
+      "source": "node-1749383942800",
+      "sourceHandle": null,
+      "target": "node-1749595176678",
+      "targetHandle": null,
+      "id": "e1749595180645"
+    },
+    {
+      "type": "smoothstep",
+      "animated": true,
+      "style": {
+        "stroke": "#64748b",
+        "strokeWidth": 2
+      },
+      "source": "node-1749385112247",
+      "sourceHandle": null,
+      "target": "node-1749595176678",
+      "targetHandle": null,
+      "id": "e1749595182333"
     }
   ]
 }

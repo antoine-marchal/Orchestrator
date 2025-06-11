@@ -36,7 +36,8 @@ import {
   Hash,
   MessageSquare,
   GitBranch,
-  FilePlus
+  FilePlus,
+  XCircle
 } from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
@@ -157,7 +158,7 @@ const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
-  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow, updateNodeData, openEditorModal } = useFlowStore();
+  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow, updateNodeData, openEditorModal, clearAllOutputs } = useFlowStore();
   const { fitView, getNodes, getEdges, project } = useReactFlow();
   const [contextMenu, setContextMenu] = React.useState<null | {
     x: number; y: number; flowX: number; flowY: number
@@ -520,21 +521,21 @@ function Flow() {
     icon={FilePlus}
     label="New Flow"
     color="bg-teal-500 hover:bg-teal-600"
-    title="New Flow (Ctrl+N)"
+    title="New Flow (Ctrl+N or Cmd+N)"
   />
   <ToolbarButton
     onClick={saveFlow}
     icon={Save}
     label="Save Flow"
     color="bg-blue-500 hover:bg-blue-600"
-    title="Save Flow"
+    title="Save Flow (Ctrl+S or Cmd+S)"
   />
   <ToolbarButton
     onClick={loadFlow}
     icon={Upload}
     label="Load Flow"
     color="bg-green-500 hover:bg-green-600"
-    title="Load Flow"
+    title="Load Flow (Ctrl+O or Cmd+O)"
   />
   <ToolbarButton
     onClick={clearFlow}
@@ -556,6 +557,13 @@ function Flow() {
     label="Prettify"
     color="bg-indigo-500 hover:bg-indigo-600"
     title="Prettify"
+  />
+  <ToolbarButton
+    onClick={clearAllOutputs}
+    icon={XCircle}
+    label="Clear Output"
+    color="bg-orange-500 hover:bg-orange-600"
+    title="Clear All Node Outputs"
   />
 
   {/* Add Node Button with Dropdown */}
