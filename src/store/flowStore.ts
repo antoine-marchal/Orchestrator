@@ -19,6 +19,9 @@ interface FlowState {
   showConsole: boolean;
   fullscreen: boolean;
   nodeExecutionTimeout: number;
+  isOutputZoneActive: boolean;
+  isTitleEditing: boolean;
+  isMouseOverConsole: boolean;
   editorModal: {
     isOpen: boolean;
     nodeId: string | null;
@@ -32,6 +35,9 @@ interface FlowState {
   setNodeExecutionTimeout: (timeout: number) => void;
   convertToRelativePath: (absolutePath: string, basePath: string) => string;
   convertToAbsolutePath: (relativePath: string, basePath: string) => string;
+  setOutputZoneActive: (active: boolean) => void;
+  setTitleEditing: (editing: boolean) => void;
+  setMouseOverConsole: (isOver: boolean) => void;
   updateNodeDraggable: (nodeId: string, isDraggable: boolean) => void;
   updatePanOnDrag: (isDraggable: boolean) => void;
   updateZoomOnScroll: (isDraggable: boolean) => void;
@@ -104,12 +110,18 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   nodeLoading: {},
   panOnDrag: true,
   flowPath: null,
+  isOutputZoneActive: false,
+  isTitleEditing: false,
+  isMouseOverConsole: false,
   // History state
   history: [],
   historyIndex: -1,
   maxHistorySize: 100,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
+  setOutputZoneActive: (active: boolean) => set({ isOutputZoneActive: active }),
+  setTitleEditing: (editing: boolean) => set({ isTitleEditing: editing }),
+  setMouseOverConsole: (isOver: boolean) => set({ isMouseOverConsole: isOver }),
 
   // History management functions
   canUndo: () => {
@@ -838,7 +850,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         }
         state.setNodeLoading(nodeId, false);
         if (log) addLog('log', prettyFormat(log));
-        if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
+        if (result !== undefined && result !== null && 'output' in result) addLog('output', prettyFormat(result.output));
+        else if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
         if (error) addLog('error', prettyFormat(error));
         
         // Update node data with result

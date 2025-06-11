@@ -39,14 +39,16 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
     
     return (
       <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
-        updateNodeDraggable(nodeId, false),
-          updatePanOnDrag(false),
-          updateZoomOnScroll(false)
+        updateNodeDraggable(nodeId, false);
+        updatePanOnDrag(false);
+        updateZoomOnScroll(false);
+        useFlowStore.getState().setOutputZoneActive(true);
       }}
         onMouseLeave={() => {
-          updateNodeDraggable(nodeId, true),
-            updatePanOnDrag(true),
-            updateZoomOnScroll(true)
+          updateNodeDraggable(nodeId, true);
+          updatePanOnDrag(true);
+          updateZoomOnScroll(true);
+          useFlowStore.getState().setOutputZoneActive(false);
         }}>
         <div className="text-sm text-gray-400 space-y-2 relative">
           <div className="bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
@@ -73,7 +75,15 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
                     Output: <br />
                   </>
                 )}
-                {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
+                {/* For flow nodes, only display the output property if it exists */}
+                {typeof data.output === 'object' && data.output !== null && 'output' in data.output
+                  ? typeof data.output.output === 'string'
+                    ? data.output.output
+                    : JSON.stringify(data.output.output, null, 2)
+                  : typeof data.output === 'string'
+                    ? data.output
+                    : JSON.stringify(data.output, null, 2)
+                }
               </div>
               <button
                 className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
@@ -97,14 +107,16 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
   return (
     <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
-      updateNodeDraggable(nodeId, false),
-        updatePanOnDrag(false),
-        updateZoomOnScroll(false)
+      updateNodeDraggable(nodeId, false);
+      updatePanOnDrag(false);
+      updateZoomOnScroll(false);
+      useFlowStore.getState().setOutputZoneActive(true);
     }}
       onMouseLeave={() => {
-        updateNodeDraggable(nodeId, true),
-          updatePanOnDrag(true),
-          updateZoomOnScroll(true)
+        updateNodeDraggable(nodeId, true);
+        updatePanOnDrag(true);
+        updateZoomOnScroll(true);
+        useFlowStore.getState().setOutputZoneActive(false);
       }}>
 
 <div className="text-sm text-gray-400 space-y-2 relative">
@@ -127,7 +139,15 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
             Output: <br />
           </>
         )}
-        {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
+        {/* For regular nodes, display output in the same way as flow nodes */}
+        {typeof data.output === 'object' && data.output !== null && 'output' in data.output
+          ? typeof data.output.output === 'string'
+            ? data.output.output
+            : JSON.stringify(data.output.output, null, 2)
+          : typeof data.output === 'string'
+            ? data.output
+            : JSON.stringify(data.output, null, 2)
+        }
       </div>
       <button
         className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"

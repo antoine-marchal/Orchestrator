@@ -82,14 +82,20 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
             type="text"
             value={data.label}
             onChange={(e) => onLabelChange(e.target.value)}
-            onFocus={(e) => e.target.select()}
+            onFocus={(e) => {
+              e.target.select();
+              useFlowStore.getState().setTitleEditing(true);
+            }}
+            onBlur={() => {
+              useFlowStore.getState().setTitleEditing(false);
+            }}
             onMouseEnter={() => {
-              updateNodeDraggable(nodeId, false),
-              updatePanOnDrag(false)
+              updateNodeDraggable(nodeId, false);
+              updatePanOnDrag(false);
             }}
             onMouseLeave={() => {
-              updateNodeDraggable(nodeId, true),
-              updatePanOnDrag(true)
+              updateNodeDraggable(nodeId, true);
+              updatePanOnDrag(true);
             }}
             className="font-semibold text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full"
           />
@@ -133,15 +139,21 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           onChange={(e) => onValueChange(e.target.value)}
           className="mt-2 text-base bg-gray-700 border-none rounded px-2 py-1 text-white w-full font-mono"
           placeholder="Value…"
+          onFocus={(e) => {
+            e.target.select();
+            useFlowStore.getState().setTitleEditing(true);
+          }}
+          onBlur={() => {
+            useFlowStore.getState().setTitleEditing(false);
+          }}
           onMouseEnter={() => {
-            updateNodeDraggable(nodeId, false),
-            updatePanOnDrag(false)
+            updateNodeDraggable(nodeId, false);
+            updatePanOnDrag(false);
           }}
           onMouseLeave={() => {
-            updateNodeDraggable(nodeId, true),
-            updatePanOnDrag(true)
+            updateNodeDraggable(nodeId, true);
+            updatePanOnDrag(true);
           }}
-          onFocus={(e) => e.target.select()}
         />
       )}
     </div>

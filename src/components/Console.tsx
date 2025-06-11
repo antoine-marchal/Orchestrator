@@ -12,7 +12,8 @@ const Console: React.FC = () => {
     clearConsole,
     nodes,
     nodeExecutionTimeout,
-    setNodeExecutionTimeout
+    setNodeExecutionTimeout,
+    setMouseOverConsole
   } = useFlowStore();
 
   const consoleRef = React.useRef<HTMLDivElement>(null);
@@ -94,6 +95,8 @@ const Console: React.FC = () => {
         }
       `}
       style={fullscreen ? { minHeight: '100vh' } : {}}
+      onMouseEnter={() => setMouseOverConsole(true)}
+      onMouseLeave={() => setMouseOverConsole(false)}
     >
       <div className="flex items-center justify-between p-2 border-b border-gray-700">
         <div className="flex items-center gap-2">

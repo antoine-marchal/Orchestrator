@@ -215,8 +215,12 @@ function Flow() {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Prevent default browser actions for our shortcuts
       if (event.ctrlKey || event.metaKey) {
-        // Skip handling CTRL+C and CTRL+V when modal editor is open
+        // Get current state of output zone, title editing, and mouse over console
+        const { isOutputZoneActive, isTitleEditing, editorModal, isMouseOverConsole } = useFlowStore.getState();
         const isModalOpen = editorModal.isOpen;
+        
+        // Skip handling CTRL+C and CTRL+V when modal editor is open, output zone is active, title is being edited, or mouse is over console
+        const shouldSkipCopyPaste = isModalOpen || isOutputZoneActive || isTitleEditing || isMouseOverConsole;
         
         switch (event.key.toLowerCase()) {
           case 'n':
@@ -248,15 +252,15 @@ function Flow() {
             if (canRedo()) redo();
             break;
           case 'c':
-            // Only handle copy if modal is closed and we have selected nodes
-            if (!isModalOpen && selectedNodes.length > 0) {
+            // Only handle copy if we're not in a special state and have selected nodes
+            if (!shouldSkipCopyPaste && selectedNodes.length > 0) {
               event.preventDefault();
               copySelectedNodes(selectedNodes);
             }
             break;
           case 'v':
-            // Only handle paste if modal is closed
-            if (!isModalOpen) {
+            // Only handle paste if we're not in a special state
+            if (!shouldSkipCopyPaste) {
               event.preventDefault();
               handlePasteNodes();
             }
@@ -269,7 +273,7 @@ function Flow() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [clearFlow, executeFlow, clearAllOutputs, undo, redo, canUndo, canRedo, selectedNodes, copySelectedNodes, handlePasteNodes, editorModal.isOpen]);
+  }, [clearFlow, executeFlow, clearAllOutputs, undo, redo, canUndo, canRedo, selectedNodes, copySelectedNodes, handlePasteNodes]);
   
   // Function to create a new flow
   const createNewFlow = () => {
