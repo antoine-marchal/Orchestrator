@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import ToolbarButton from './ToolbarButton';
 import ReactFlow, {
   Background,
@@ -37,7 +37,11 @@ import {
   MessageSquare,
   GitBranch,
   FilePlus,
-  XCircle
+  XCircle,
+  Undo,
+  Redo,
+  Copy,
+  Clipboard
 } from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
@@ -158,20 +162,106 @@ const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
-  const { nodes, edges, setNodes, setEdges, saveFlow, loadFlow, executeFlow, panOnDrag, zoomOnScroll, clearFlow, updateNodeData, openEditorModal, clearAllOutputs } = useFlowStore();
+  const {
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    saveFlow,
+    loadFlow,
+    executeFlow,
+    panOnDrag,
+    zoomOnScroll,
+    clearFlow,
+    updateNodeData,
+    openEditorModal,
+    clearAllOutputs,
+    // History navigation
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    // Copy/Paste functionality
+    copySelectedNodes,
+    pasteNodes,
+    clearNodeSelection,
+    // Modal state
+    editorModal
+  } = useFlowStore();
   const { fitView, getNodes, getEdges, project } = useReactFlow();
-  const [contextMenu, setContextMenu] = React.useState<null | {
+  const [contextMenu, setContextMenu] = useState<null | {
     x: number; y: number; flowX: number; flowY: number
   }>(null);
   
-  const [dropdownMenu, setDropdownMenu] = React.useState(false);
+  const [dropdownMenu, setDropdownMenu] = useState(false);
+  const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   
-  // Add keyboard shortcut for new flow (CTRL+N)
-  React.useEffect(() => {
+  // Handle copy selected nodes
+  const handleCopyNodes = useCallback(() => {
+    if (selectedNodes.length > 0) {
+      copySelectedNodes(selectedNodes);
+    }
+  }, [selectedNodes, copySelectedNodes]);
+  
+  // Handle paste nodes with deselection
+  const handlePasteNodes = useCallback(() => {
+    pasteNodes();
+    // Note: pasteNodes now handles deselection internally
+  }, [pasteNodes]);
+  
+  // Add keyboard shortcuts
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'n') {
-        event.preventDefault(); // Prevent browser's default "new window" action
-        createNewFlow();
+      // Prevent default browser actions for our shortcuts
+      if (event.ctrlKey || event.metaKey) {
+        // Skip handling CTRL+C and CTRL+V when modal editor is open
+        const isModalOpen = editorModal.isOpen;
+        
+        switch (event.key.toLowerCase()) {
+          case 'n':
+            event.preventDefault();
+            createNewFlow();
+            break;
+          case 'd':
+            event.preventDefault();
+            clearFlow();
+            break;
+          case 'r':
+            event.preventDefault();
+            executeFlow();
+            break;
+          case 'p':
+            event.preventDefault();
+            handlePrettifyFlow();
+            break;
+          case 'w':
+            event.preventDefault();
+            clearAllOutputs();
+            break;
+          case 'z':
+            event.preventDefault();
+            if (canUndo()) undo();
+            break;
+          case 'y':
+            event.preventDefault();
+            if (canRedo()) redo();
+            break;
+          case 'c':
+            // Only handle copy if modal is closed and we have selected nodes
+            if (!isModalOpen && selectedNodes.length > 0) {
+              event.preventDefault();
+              copySelectedNodes(selectedNodes);
+            }
+            break;
+          case 'v':
+            // Only handle paste if modal is closed
+            if (!isModalOpen) {
+              event.preventDefault();
+              handlePasteNodes();
+            }
+            break;
+        }
       }
     };
     
@@ -179,7 +269,7 @@ function Flow() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [clearFlow, executeFlow, clearAllOutputs, undo, redo, canUndo, canRedo, selectedNodes, copySelectedNodes, handlePasteNodes, editorModal.isOpen]);
   
   // Function to create a new flow
   const createNewFlow = () => {
@@ -210,8 +300,43 @@ function Flow() {
     [getNodes, getEdges],
   );
   const onNodesChange: OnNodesChange = useCallback(
-    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    [setNodes]
+    (changes) => {
+      // Check if any of the changes is a position change (dragging)
+      const hasDragChange = changes.some(
+        change => change.type === 'position' && change.dragging !== undefined
+      );
+      
+      // If there's a drag change, update the dragging state
+      if (hasDragChange) {
+        const isDraggingNow = changes.some(change =>
+          change.type === 'position' && change.dragging === true
+        );
+        
+        if (isDraggingNow !== isDragging) {
+          setIsDragging(isDraggingNow);
+          
+          // If dragging just ended, add to history
+          if (isDragging && !isDraggingNow) {
+            // Add to history after the position update is applied
+            setTimeout(() => {
+              useFlowStore.getState().addToHistory();
+            }, 0);
+          }
+        }
+      }
+      
+      // During dragging, don't add to history
+      if (isDragging) {
+        // Apply changes directly without adding to history
+        const updatedNodes = applyNodeChanges(changes, nodes);
+        // Use the store's set function directly to avoid adding to history
+        useFlowStore.setState({ nodes: updatedNodes });
+      } else {
+        // For non-dragging changes, use the normal setNodes which adds to history
+        setNodes((nds) => applyNodeChanges(changes, nds));
+      }
+    },
+    [setNodes, isDragging, nodes]
   );
 
   const onEdgesChange: OnEdgesChange = useCallback(
@@ -474,6 +599,11 @@ function Flow() {
     }
   };
 
+  // Track selected nodes
+  const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => {
+    setSelectedNodes(nodes.map(node => node.id));
+  }, []);
+
   return (
     <div className="w-full" style={{ height: 'calc(100vh)' }}>
       <ReactFlow
@@ -499,6 +629,8 @@ function Flow() {
         isValidConnection={isValidConnection}
         onPaneContextMenu={handlePaneContextMenu}
         onNodeDoubleClick={handleNodeDoubleClick}
+        onSelectionChange={onSelectionChange}
+        multiSelectionKeyCode="Shift"
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: true,
@@ -515,66 +647,113 @@ function Flow() {
             return '#3b82f6';
           }}
         />
-       <Panel position="top-right" className="flex gap-2">
-  <ToolbarButton
-    onClick={createNewFlow}
-    icon={FilePlus}
-    label="New Flow"
-    color="bg-teal-500 hover:bg-teal-600"
-    title="New Flow (Ctrl+N or Cmd+N)"
-  />
-  <ToolbarButton
-    onClick={saveFlow}
-    icon={Save}
-    label="Save Flow"
-    color="bg-blue-500 hover:bg-blue-600"
-    title="Save Flow (Ctrl+S or Cmd+S)"
-  />
-  <ToolbarButton
-    onClick={loadFlow}
-    icon={Upload}
-    label="Load Flow"
-    color="bg-green-500 hover:bg-green-600"
-    title="Load Flow (Ctrl+O or Cmd+O)"
-  />
-  <ToolbarButton
-    onClick={clearFlow}
-    icon={Trash2}
-    label="Erase Flow"
-    color="bg-red-500 hover:bg-red-600"
-    title="Erase Flow"
-  />
-  <ToolbarButton
-    onClick={executeFlow}
-    icon={PlayCircle}
-    label="Run Flow"
-    color="bg-yellow-500 hover:bg-yellow-600"
-    title="Run Flow"
-  />
-  <ToolbarButton
-    onClick={handlePrettifyFlow}
-    icon={Layout}
-    label="Prettify"
-    color="bg-indigo-500 hover:bg-indigo-600"
-    title="Prettify"
-  />
-  <ToolbarButton
-    onClick={clearAllOutputs}
-    icon={XCircle}
-    label="Clear Output"
-    color="bg-orange-500 hover:bg-orange-600"
-    title="Clear All Node Outputs"
-  />
+       <Panel position="top-right" className="flex gap-2 flex-wrap">
+        {/* File Operations Group */}
+        <div className="flex gap-2 mr-2">
+          <ToolbarButton
+            onClick={createNewFlow}
+            icon={FilePlus}
+            label="New Flow"
+            color="bg-teal-500 hover:bg-teal-600"
+            title="New Flow (Ctrl+N)"
+          />
+          <ToolbarButton
+            onClick={saveFlow}
+            icon={Save}
+            label="Save Flow"
+            color="bg-blue-500 hover:bg-blue-600"
+            title="Save Flow (Ctrl+S)"
+          />
+          <ToolbarButton
+            onClick={loadFlow}
+            icon={Upload}
+            label="Load Flow"
+            color="bg-green-500 hover:bg-green-600"
+            title="Load Flow (Ctrl+O)"
+          />
+        </div>
 
-  {/* Add Node Button with Dropdown */}
-  <div className="relative">
-    <ToolbarButton
-      onClick={handleAddNodeClick}
-      icon={Plus}
-      label="Add Node"
-      color="bg-purple-500 hover:bg-purple-600"
-      title="Add Node"
-    />
+        {/* Flow Operations Group */}
+        <div className="flex gap-2 mr-2">
+          <ToolbarButton
+            onClick={clearFlow}
+            icon={Trash2}
+            label="Erase Flow"
+            color="bg-red-500 hover:bg-red-600"
+            title="Erase Flow (Ctrl+D)"
+          />
+          <ToolbarButton
+            onClick={executeFlow}
+            icon={PlayCircle}
+            label="Run Flow"
+            color="bg-yellow-500 hover:bg-yellow-600"
+            title="Run Flow (Ctrl+R)"
+          />
+        </div>
+
+        {/* History Navigation Group */}
+        <div className="flex gap-2 mr-2">
+          <ToolbarButton
+            onClick={undo}
+            icon={Undo}
+            label="Undo"
+            color={canUndo() ? "bg-gray-500 hover:bg-gray-600" : "bg-gray-400"}
+            title="Undo (Ctrl+Z)"
+          />
+          <ToolbarButton
+            onClick={redo}
+            icon={Redo}
+            label="Redo"
+            color={canRedo() ? "bg-gray-500 hover:bg-gray-600" : "bg-gray-400"}
+            title="Redo (Ctrl+Y)"
+          />
+        </div>
+
+        {/* Clipboard Operations Group */}
+        <div className="flex gap-2 mr-2">
+          <ToolbarButton
+            onClick={handleCopyNodes}
+            icon={Copy}
+            label="Copy"
+            color={selectedNodes.length > 0 ? "bg-purple-500 hover:bg-purple-600" : "bg-purple-400"}
+            title="Copy Selected Nodes (Ctrl+C)"
+          />
+          <ToolbarButton
+            onClick={handlePasteNodes}
+            icon={Clipboard}
+            label="Paste"
+            color="bg-purple-500 hover:bg-purple-600"
+            title="Paste Nodes (Ctrl+V)"
+          />
+        </div>
+
+        {/* Utility Operations Group */}
+        <div className="flex gap-2 mr-2">
+          <ToolbarButton
+            onClick={handlePrettifyFlow}
+            icon={Layout}
+            label="Prettify"
+            color="bg-indigo-500 hover:bg-indigo-600"
+            title="Prettify (Ctrl+P)"
+          />
+          <ToolbarButton
+            onClick={clearAllOutputs}
+            icon={XCircle}
+            label="Clear Output"
+            color="bg-orange-500 hover:bg-orange-600"
+            title="Clear All Node Outputs (Ctrl+W)"
+          />
+        </div>
+
+        {/* Add Node Button with Dropdown */}
+        <div className="relative">
+          <ToolbarButton
+            onClick={handleAddNodeClick}
+            icon={Plus}
+            label="Add Node"
+            color="bg-purple-500 hover:bg-purple-600"
+            title="Add Node"
+          />
     {dropdownMenu && (
       <div className="absolute right-0 mt-2 w-48 
         bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 

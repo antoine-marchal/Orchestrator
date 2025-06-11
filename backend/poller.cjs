@@ -185,7 +185,9 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
         
         // Special handling for flow nodes to ensure nested flow execution
         if (node.data.type === 'flow') {
-          return await executeFlowNode(node, nodeId, nodeInput, visited.flowPath, nodeResults);
+          const flowResult = await executeFlowNode(node, nodeId, nodeInput, visited.flowPath, nodeResults);
+          // If the result is an object with output and executionTime, extract the output
+          return flowResult.output !== undefined ? flowResult.output : flowResult;
         }
         
         // For other node types, create a temporary job file
@@ -209,7 +211,7 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
           // Return the result of the last end node
           const finalResult = results.length > 0 ? results[results.length - 1] : null;
           console.log('\nFlow execution completed successfully.');
-          console.log(`Final result: ${JSON.stringify(finalResult, null, 2)}`);
+          console.log(`Final result: ${JSON.stringify(finalResult.output, null, 2)}`);
           
           // If this is the master flow and we should shutdown after execution
           if (isTopLevel && shouldShutdownAfterExecution) {
@@ -264,6 +266,9 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults) {
     throw new Error(`Flow node ${nodeId} has no flow file path specified`);
   }
   
+  // Start execution time tracking
+  const startTime = Date.now();
+  
   try {
     // Set up log collection for the nested flow
     const { restore: restoreNestedConsole } = createLogCollector();
@@ -272,6 +277,9 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults) {
       // Execute the nested flow with the current flow path to track circular references
       // Pass false for isTopLevel to indicate this is not a master flow
       const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, flowPath, false);
+      
+      // Calculate execution time
+      const executionTime = Date.now() - startTime;
       
       // Restore original console methods and get logs
       const nestedLogs = restoreNestedConsole();
@@ -293,8 +301,12 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults) {
       console.log(`Output: ${JSON.stringify(nestedFlowResult, null, 2)}`);
       console.log('---');
       
+      // Store result and execution time
       nodeResults[nodeId] = nestedFlowResult;
-      return nestedFlowResult;
+      nodeResults[`${nodeId}_executionTime`] = executionTime;
+      
+      // Return result with execution time
+      return { output: nestedFlowResult, executionTime };
     } catch (err) {
       // Restore original console methods in case of error
       restoreNestedConsole();
@@ -324,6 +336,9 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults) {
     input: nodeInput
   };
   
+  // Start execution time tracking
+  const startTime = Date.now();
+  
   // Execute the node job
   const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
   fs.writeFileSync(nodeJobPath, JSON.stringify(nodeJob), 'utf8');
@@ -338,6 +353,9 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults) {
           const result = JSON.parse(resultContent);
           fs.unlinkSync(resultPath); // Clean up
           
+          // Calculate execution time
+          const executionTime = Date.now() - startTime;
+          
           // Log node execution results to console
           console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
           if (result.log) console.log(`Log: ${result.log}`);
@@ -345,8 +363,13 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults) {
           console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
           console.log('---');
           
+          // Store result and execution time
           nodeResults[nodeId] = result.output;
-          resolveNode(result.output);
+          nodeResults[`${nodeId}_executionTime`] = executionTime;
+          
+          // Add execution time to the result
+          result.executionTime = executionTime;
+          resolveNode(result);
         } catch (err) {
           rejectNode(err);
         }

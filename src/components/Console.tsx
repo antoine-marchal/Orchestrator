@@ -139,7 +139,7 @@ const Console: React.FC = () => {
                 className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50"
               >
                 <div className="py-1 px-2 text-xs text-gray-400 border-b border-gray-700">Execution Timeout</div>
-                {[5, 10, 30, 60, 120, 300, 600, 1200].map((seconds) => (
+                {[5, 30, 60, 120, 300, 600, 1200].map((seconds) => (
                   <button
                     key={seconds}
                     className={`w-full text-left px-3 py-1 hover:bg-gray-700 ${

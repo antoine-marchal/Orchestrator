@@ -24,6 +24,10 @@ interface FlowState {
     nodeId: string | null;
   };
   flowPath?: string | null; // add this!
+  // Flow history tracking
+  history: Array<{ nodes: Node[]; edges: Edge[] }>;
+  historyIndex: number;
+  maxHistorySize: number;
   setFlowPath: (path: string | null) => void;
   setNodeExecutionTimeout: (timeout: number) => void;
   convertToRelativePath: (absolutePath: string, basePath: string) => string;
@@ -52,6 +56,17 @@ interface FlowState {
   closeEditorModal: () => void;
   setNodeLoading: (nodeId: string, loading: boolean) => void;
   clearAllOutputs: () => void;
+  // History navigation
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  undo: () => void;
+  redo: () => void;
+  addToHistory: () => void;
+  // Copy/Paste functionality
+  copySelectedNodes: (nodeIds: string[]) => void;
+  pasteNodes: () => void;
+  getClipboardNodes: () => Node[] | null;
+  clearNodeSelection: (nodes : Node[]) => void;
 }
 function prettyFormat(val: any): string {
   if (val == null) return '';
@@ -89,11 +104,196 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   nodeLoading: {},
   panOnDrag: true,
   flowPath: null,
+  // History state
+  history: [],
+  historyIndex: -1,
+  maxHistorySize: 100,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
 
+  // History management functions
+  canUndo: () => {
+    const { historyIndex } = get();
+    return historyIndex > 0;
+  },
+  
+  canRedo: () => {
+    const { historyIndex, history } = get();
+    return historyIndex < history.length - 1;
+  },
+  
+  addToHistory: () => {
+    const { nodes, edges, history, historyIndex, maxHistorySize } = get();
+    
+    // Create a deep copy of the current state
+    const currentState = {
+      nodes: JSON.parse(JSON.stringify(nodes)),
+      edges: JSON.parse(JSON.stringify(edges))
+    };
+    
+    // If we're not at the end of the history, truncate the future states
+    const newHistory = historyIndex < history.length - 1
+      ? history.slice(0, historyIndex + 1)
+      : [...history];
+    
+    // Add the current state to history
+    newHistory.push(currentState);
+    
+    // If history exceeds max size, remove oldest entries
+    if (newHistory.length > maxHistorySize) {
+      newHistory.shift();
+    }
+    
+    set({
+      history: newHistory,
+      historyIndex: newHistory.length - 1
+    });
+  },
+  
+  undo: () => {
+    const { history, historyIndex } = get();
+    
+    if (historyIndex > 0) {
+      const prevState = history[historyIndex - 1];
+      set({
+        nodes: prevState.nodes,
+        edges: prevState.edges,
+        historyIndex: historyIndex - 1
+      });
+    }
+  },
+  
+  redo: () => {
+    const { history, historyIndex } = get();
+    
+    if (historyIndex < history.length - 1) {
+      const nextState = history[historyIndex + 1];
+      set({
+        nodes: nextState.nodes,
+        edges: nextState.edges,
+        historyIndex: historyIndex + 1
+      });
+    }
+  },
+  
+  // Clipboard functionality
+  copySelectedNodes: (nodeIds: string[]) => {
+    const { nodes, edges } = get();
+    
+    // Get the selected nodes
+    const selectedNodes = nodes.filter(node => nodeIds.includes(node.id));
+    
+    // Get edges between selected nodes
+    const selectedEdges = edges.filter(
+      edge => nodeIds.includes(edge.source) && nodeIds.includes(edge.target)
+    );
+    
+    // Store in localStorage (as a simple clipboard)
+    if (selectedNodes.length > 0) {
+      const clipboardData = {
+        nodes: selectedNodes,
+        edges: selectedEdges,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('orchestrator-clipboard', JSON.stringify(clipboardData));
+    }
+  },
+  
+  getClipboardNodes: () => {
+    try {
+      const clipboardData = localStorage.getItem('orchestrator-clipboard');
+      if (!clipboardData) return null;
+      
+      return JSON.parse(clipboardData).nodes;
+    } catch (error) {
+      console.error('Error reading clipboard:', error);
+      return null;
+    }
+  },
+  
+  pasteNodes: () => {
+    try {
+      const clipboardJson = localStorage.getItem('orchestrator-clipboard');
+      if (!clipboardJson) return;
+      
+      const clipboard = JSON.parse(clipboardJson);
+      const { nodes, edges } = get();
+      
+      // Create a mapping of old node IDs to new node IDs
+      const idMapping: Record<string, string> = {};
+      
+      // Create new nodes with new IDs
+      const newNodes = clipboard.nodes.map((node: Node) => {
+        const newId = `node-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        idMapping[node.id] = newId;
+        
+        // Offset position slightly to make it clear these are new nodes
+        const position = {
+          x: node.position.x + 150,
+          y: node.position.y + 150
+        };
+        
+        return {
+          ...node,
+          id: newId,
+          position,
+          data: {
+            ...node.data,
+            label: `${node.data.label} (copy)`
+          },
+          selected: true // Ensure new nodes are not selected
+        };
+      });
+      
+      // Create new edges with updated source/target IDs
+      const newEdges = clipboard.edges.map((edge: Edge) => {
+        return {
+          ...edge,
+          id: `e${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          source: idMapping[edge.source],
+          target: idMapping[edge.target]
+        };
+      });
+      
+      // Add the new nodes and edges to the flow
+      set({
+        nodes: [...nodes, ...newNodes],
+        edges: [...edges, ...newEdges]
+      });
+      
+      // Add this change to history
+      get().addToHistory();
+      
+      // Clear selection after paste
+      
+      get().clearNodeSelection(clipboard.nodes);
+      
+    } catch (error) {
+      console.error('Error pasting nodes:', error);
+    }
+  },
+  
+  // Helper function to clear node selection
+  clearNodeSelection: (targetedNodes: Node[]) => {
+  const targetedIds = new Set(targetedNodes.map(n => n.id));
+  set((state) => ({
+    nodes: state.nodes.map(node => ({
+      ...node,
+      selected: targetedIds.has(node.id) ? false : node.selected
+    }))
+  }));
+},
+
+
   clearFlow: () => {
-    set({ nodes: [], edges: [], flowPath: null });
+    set({
+      nodes: [],
+      edges: [],
+      flowPath: null,
+      // Reset history when clearing the flow
+      history: [],
+      historyIndex: -1
+    });
     window.electronAPI?.setTitle?.('default'); // Triggers reset to versioned title
   },
   
@@ -116,26 +316,55 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       node.id === nodeId ? { ...node, draggable: isDraggable } : node
     ),
   })),
-  setNodes: (nodes) => set((state) => ({ 
-    nodes: typeof nodes === 'function' ? nodes(state.nodes) : nodes 
-  })),
-  setEdges: (edges) => set((state) => ({ 
-    edges: typeof edges === 'function' ? edges(state.edges) : edges 
-  })),
-  addNode: (node) => set((state) => ({ nodes: [...state.nodes, node] })),
-  removeNode: (nodeId) =>
+  setNodes: (nodes, addHistory = true) => {
+    // Add current state to history before making changes (if addHistory is true)
+    if (addHistory) {
+      get().addToHistory();
+    }
+    
+    set((state) => ({
+      nodes: typeof nodes === 'function' ? nodes(state.nodes) : nodes
+    }));
+  },
+  
+  setEdges: (edges) => {
+    // Add current state to history before making changes
+    get().addToHistory();
+    
+    set((state) => ({
+      edges: typeof edges === 'function' ? edges(state.edges) : edges
+    }));
+  },
+  
+  addNode: (node) => {
+    // Add current state to history before making changes
+    get().addToHistory();
+    
+    set((state) => ({ nodes: [...state.nodes, node] }));
+  },
+  removeNode: (nodeId) => {
+    // Add current state to history before making changes
+    get().addToHistory();
+    
     set((state) => ({
       nodes: state.nodes.filter((node) => node.id !== nodeId),
       edges: state.edges.filter(
         (edge) => edge.source !== nodeId && edge.target !== nodeId
       ),
-    })),
-  updateNodeData: (nodeId, data) =>
+    }));
+  },
+  updateNodeData: (nodeId, data, addHistory = true) => {
+    // Add current state to history before making changes (if addHistory is true)
+    if (addHistory) {
+      get().addToHistory();
+    }
+    
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === nodeId ? { ...node, data: { ...node.data, ...data } } : node
       ),
-    })),
+    }));
+  },
   toggleConsole: () => {set((state) => ({ 
     showConsole: !state.showConsole,
     fullscreen : false }))},
@@ -157,10 +386,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       }
     }))
   })),
-  removeConnection: (edgeId) =>
+  removeConnection: (edgeId) => {
+    // Add current state to history before making changes
+    get().addToHistory();
+    
     set((state) => ({
       edges: state.edges.filter((edge) => edge.id !== edgeId)
-    })),
+    }));
+  },
   
   openEditorModal: (nodeId) =>
     set({ editorModal: { isOpen: true, nodeId } }),
@@ -427,6 +660,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         } else if (node.data.type === 'flow') {
           // For flow nodes, we execute the referenced flow file using the backend poller
           try {
+            // Start execution time tracking
+            const startTime = Date.now();
+            
             // The code property contains the path to the flow file
             let flowPath = node.data.code;
             if (!flowPath) {
@@ -479,6 +715,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // The output could be any valid value, so we shouldn't filter based on string comparison
             result = resultData.output;
             
+            // Get execution time if available (will be used later)
+            
             // Process logs from nested flow execution
             // These logs will include the [Nested] prefix added by the backend
             log = resultData.log;
@@ -509,8 +747,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             
             error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
             
+            // Calculate execution time - use the one from backend if available, otherwise calculate locally
+            const executionTime = resultData.executionTime || (Date.now() - startTime);
+            
+            // Store execution time in node data
+            node.data.executionTime = executionTime;
+            
             // Ensure the node data is updated with the nested flow execution result
-            state.updateNodeData(nodeId, { output: result });
+            state.updateNodeData(nodeId, { output: result, executionTime });
           } catch (err) {
             error = (err as Error).message;
           }
@@ -536,6 +780,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           // --- NEW: Run JS directly if language is javascript ---
           if (node.data.language === 'javascript') {
             try {
+              // Start execution time tracking
+              const startTime = Date.now();
+              
               let code = node.data.code?.trim() || '';
               let fn;
               if (/^function\s*\w*\s*\(/.test(code)) {
@@ -550,6 +797,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               };
               result = fn(processedInputs);
               console.log = originalConsoleLog;
+              
+              // Calculate execution time
+              const executionTime = Date.now() - startTime;
+              
+              // Store execution time in node data
+              // We'll update the execution time when we update the output
+              node.data.executionTime = executionTime;
             } catch (err) {
               console.log = originalConsoleLog;
               error = (err as Error).message;
@@ -558,6 +812,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
            else {
             // --- FALLBACK: Use backend for Groovy/Batch etc ---
             if (node.data.code) {
+              // Start execution time tracking
+              const startTime = Date.now();
+              
               const payload = {
                 id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
                 code: node.data.code,
@@ -570,6 +827,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               result = resultData.output !== '[]' ? resultData.output : null;
               log = resultData.log;
               error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+              
+              // Calculate execution time
+              const executionTime = resultData.executionTime || (Date.now() - startTime);
+              
+              // Store execution time in node data
+              node.data.executionTime = executionTime;
             }
           }
         }
@@ -577,6 +840,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         if (log) addLog('log', prettyFormat(log));
         if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
         if (error) addLog('error', prettyFormat(error));
+        
+        // Update node data with result
         state.updateNodeData(nodeId, { output: result });
       } catch (error: any) {
         addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);

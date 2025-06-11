@@ -8,6 +8,7 @@ export interface NodeData {
   value?: string;
   input?: any;
   output?: any;
+  executionTime?: number; // Execution time in milliseconds
   isRelativePath?: boolean; // Indicates if the path stored in code is relative
 }
 

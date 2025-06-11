@@ -2,6 +2,17 @@ import React from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 
+// Function to format execution time in seconds or minutes
+const formatExecutionTime = (timeMs: number): string => {
+  if (timeMs < 60000) {
+    // Less than a minute, show in seconds
+    return `${(timeMs / 1000).toFixed(1)} sec`;
+  } else {
+    // More than a minute, show in minutes
+    return `${(timeMs / 60000).toFixed(1)} min`;
+  }
+};
+
 interface NodeBodyProps {
   data: NodeData;
   nodeId: string;
@@ -53,7 +64,15 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
                 }
                 key={`flow-output-${nodeId}-${Date.now()}`} // Force re-render when output changes
               >
-                Output: <br />
+                {data.executionTime !== undefined ? (
+                  <>
+                    Output ({formatExecutionTime(data.executionTime)}): <br />
+                  </>
+                ) : (
+                  <>
+                    Output: <br />
+                  </>
+                )}
                 {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
               </div>
               <button
@@ -99,7 +118,15 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
         }
         key={`output-${nodeId}-${Date.now()}`} // Force re-render when output changes
       >
-        Output: <br />
+        {data.executionTime !== undefined ? (
+          <>
+            Output ({formatExecutionTime(data.executionTime)}): <br />
+          </>
+        ) : (
+          <>
+            Output: <br />
+          </>
+        )}
         {typeof data.output === 'string' ? data.output : JSON.stringify(data.output, null, 2)}
       </div>
       <button
