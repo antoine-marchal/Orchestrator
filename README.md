@@ -14,9 +14,12 @@ Orchestrator is a cross-platform desktop application built with Electron, React,
 - 🖊️ Built-in code editor with syntax highlighting for multiple languages
 - 🪝 Advanced console for real-time logs, outputs, and error tracking per node
 - 🗂️ File-based backend orchestration with inbox/outbox job processing
-- 🖱️ Keyboard shortcuts for quick save/load (Ctrl/Cmd+S, Ctrl/Cmd+O)
+- 🖱️ Comprehensive keyboard shortcuts for all operations (save, load, undo, redo, copy, paste)
 - 🖼️ Resizable, customizable nodes and flow layout auto-arrangement
 - 🛠️ Full Electron integration for native desktop experience
+- ⏱️ Execution time display for performance monitoring
+- 🧠 Flow history navigation with undo/redo functionality
+- 📋 Copy/paste functionality for nodes and configurations
 
 ## 📦 Getting Started
 
@@ -106,18 +109,42 @@ Orchestrator supports various node types, each with a unique icon for quick iden
 - Real-time per-node logs, input/output, and error tracking
 - Filter log types (input, output, log, error)
 - Expand/collapse and fullscreen console view
+- Clear Output button and keyboard shortcut (Ctrl+W)
+- Configurable timeout parameter dropdown for long-running operations
+- Improved output persistence across sessions
+- Automatic height refresh for optimal viewing experience
+- Execution time display for each node operation
 
 ### 🗂️ Backend Orchestration
 
 - File-based inbox/outbox job processing for secure script execution
 - Supports running scripts in isolated processes
 - Groovy, Batch, PowerShell, Playwright, and Node.js backend execution
+- Reworked poller.cjs for improved performance and reliability
+- Enhanced nested flow logging for better debugging of complex workflows
 
 ### 🖱️ Keyboard Shortcuts
 
-- **Ctrl/Cmd+S**: Save flow
-- **Ctrl/Cmd+O**: Open flow
+- **Ctrl+S**: Save flow
+- **Ctrl+O**: Open flow
+- **Ctrl+W**: Clear console output
+- **Ctrl+Z**: Undo last action
+- **Ctrl+Y**: Redo action
+- **Ctrl+C**: Copy selected node(s)
+- **Ctrl+V**: Paste copied node(s)
+- **Ctrl+D**: Duplicate selected node
+- **Ctrl+R**: Run/execute current flow
+- **Ctrl+P**: Open project settings
 - **Esc**: Close modals/editor
+
+All keyboard shortcuts are context-aware, meaning they intelligently adapt based on your current focus in the application.
+
+### 🔄 Flow History & Node Management
+
+- Comprehensive undo/redo system for all flow modifications
+- Copy and paste functionality for nodes with all configurations preserved
+- Starter node selection feature for quick flow initialization
+- Context-aware keyboard shortcut handling based on current focus
 
 ## 🌊 Flow Nodes
 

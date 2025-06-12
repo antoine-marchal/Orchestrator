@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 
@@ -29,6 +29,32 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   setExpanded
 }) => {
   const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
+  const outputRef = useRef<HTMLDivElement>(null);
+  
+  // Handle wheel events with proper passive: false option
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      // Stop propagation to prevent parent components from scrolling
+      e.stopPropagation();
+      
+      // Manually scroll the div based on the wheel delta
+      const target = e.currentTarget as HTMLDivElement;
+      target.scrollTop += e.deltaY;
+    };
+    
+    // Add wheel event listeners to the output elements when they exist
+    const currentOutputRef = outputRef.current;
+    if (currentOutputRef) {
+      currentOutputRef.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    
+    // Clean up the event listener when component unmounts
+    return () => {
+      if (currentOutputRef) {
+        currentOutputRef.removeEventListener('wheel', handleWheel);
+      }
+    };
+  }, [outputRef.current]); // Re-run when the ref changes
   if (data.type === 'constant') {
     return null;
   }
@@ -60,12 +86,36 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
           {data.output !== undefined && (
             <>
               <div
+                ref={outputRef}
                 className={
                   "bg-gray-900 text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
                   (expanded ? "max-h-[80vh]" : "max-h-64") +
                   " overflow-y-auto select-text"
                 }
                 key={`flow-output-${nodeId}-${Date.now()}`} // Force re-render when output changes
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+                onMouseUp={(e) => {
+                  // This is crucial for preserving text selection
+                  e.stopPropagation();
+                  
+                  // Prevent the default behavior which might clear selection
+                  if (window.getSelection()?.toString()) {
+                    e.preventDefault();
+                  }
+                }}
+                onWheel={(e) => {
+                  // Just stop propagation without preventDefault to avoid the passive listener warning
+                  e.stopPropagation();
+                  
+                  // Manually scroll - this works as a fallback if the useEffect approach fails
+                  const div = e.currentTarget;
+                  div.scrollTop += e.deltaY;
+                }}
               >
                 {data.executionTime !== undefined ? (
                   <>
@@ -124,12 +174,36 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   {data.output !== undefined && (
     <>
       <div
+        ref={outputRef}
         className={
           "bg-gray-900 text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
           (expanded ? "max-h-[80vh]" : "max-h-64") +
           " overflow-y-auto select-text"
         }
         key={`output-${nodeId}-${Date.now()}`} // Force re-render when output changes
+        onMouseDown={(e) => {
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+        onMouseUp={(e) => {
+          // This is crucial for preserving text selection
+          e.stopPropagation();
+          
+          // Prevent the default behavior which might clear selection
+          if (window.getSelection()?.toString()) {
+            e.preventDefault();
+          }
+        }}
+        onWheel={(e) => {
+          // Just stop propagation without preventDefault to avoid the passive listener warning
+          e.stopPropagation();
+          
+          // Manually scroll - this works as a fallback if the useEffect approach fails
+          const div = e.currentTarget;
+          div.scrollTop += e.deltaY;
+        }}
       >
         {data.executionTime !== undefined ? (
           <>
