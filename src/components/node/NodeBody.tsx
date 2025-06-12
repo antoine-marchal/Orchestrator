@@ -28,6 +28,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   expanded,
   setExpanded
 }) => {
+  const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
   if (data.type === 'constant') {
     return null;
   }
@@ -104,7 +105,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
       </div>
     );
   }
-  const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
+  // Flow store functions are already destructured at the top of the component
   return (
     <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
       updateNodeDraggable(nodeId, false);

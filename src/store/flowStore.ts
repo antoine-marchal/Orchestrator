@@ -1,6 +1,103 @@
 import { create } from 'zustand';
 import { Node, Edge } from 'reactflow';
-import path from 'path';
+
+// Custom path utilities for cross-platform compatibility
+const pathUtils = {
+  isAbsolute: (p: string): boolean => {
+    return p.startsWith('/') || /^[A-Za-z]:[\\\/]/.test(p);
+  },
+  
+  dirname: (p: string): string => {
+    // Normalize path separators to forward slashes for consistent handling
+    p = p.replace(/\\/g, '/');
+    
+    // Remove trailing slashes
+    p = p.replace(/\/$/, '');
+    
+    // Find the last slash
+    const lastSlashIndex = p.lastIndexOf('/');
+    
+    // Handle cases where no slash is found
+    if (lastSlashIndex === -1) return '.';
+    
+    // Handle root directories
+    if (lastSlashIndex === 0) return '/';
+    
+    // Handle Windows drive roots (e.g., C:/)
+    if (lastSlashIndex === 2 && /^[A-Za-z]:\//.test(p.substring(0, 3))) {
+      return p.substring(0, 3);
+    }
+    
+    // Return the directory part
+    return p.substring(0, lastSlashIndex);
+  },
+  
+  resolve: (dir: string, relativePath: string): string => {
+    // Handle absolute paths in relativePath
+    if (pathUtils.isAbsolute(relativePath)) return relativePath;
+    
+    // Normalize slashes to the system preference (using / for simplicity)
+    dir = dir.replace(/\\/g, '/');
+    relativePath = relativePath.replace(/\\/g, '/');
+    
+    // Ensure dir ends with a slash
+    if (!dir.endsWith('/')) dir += '/';
+    
+    // Combine and normalize the path
+    let result = dir + relativePath;
+    
+    // Handle ../ and ./ in the path
+    const parts = result.split('/');
+    const normalized = [];
+    
+    for (const part of parts) {
+      if (part === '.' || part === '') continue;
+      if (part === '..' && normalized.length > 0 && normalized[normalized.length - 1] !== '..') {
+        normalized.pop();
+      } else {
+        normalized.push(part);
+      }
+    }
+    
+    result = normalized.join('/');
+    
+    // Ensure drive letter is preserved on Windows
+    if (/^[A-Za-z]:/.test(dir)) {
+      const drive = dir.substring(0, 2);
+      if (!result.startsWith(drive)) {
+        result = drive + '/' + result;
+      }
+    }
+    
+    return result;
+  },
+  
+  relative: (from: string, to: string): string => {
+    // Normalize slashes
+    from = from.replace(/\\/g, '/');
+    to = to.replace(/\\/g, '/');
+    
+    // Ensure paths don't end with a slash
+    from = from.replace(/\/$/, '');
+    to = to.replace(/\/$/, '');
+    
+    // Split paths into segments
+    const fromParts = from.split('/');
+    const toParts = to.split('/');
+    
+    // Find common prefix
+    let i = 0;
+    while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) {
+      i++;
+    }
+    
+    // Build relative path
+    const upCount = fromParts.length - i;
+    const relativeParts = Array(upCount).fill('..').concat(toParts.slice(i));
+    
+    return relativeParts.join('/') || '.';
+  }
+};
 
 interface ConsoleMessage {
   nodeId: string;
@@ -458,14 +555,34 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (!absolutePath || !basePath) return absolutePath;
     
     try {
+      // Normalize paths to use forward slashes
+      const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
+      const normalizedBasePath = basePath.replace(/\\/g, '/');
+      
+      console.log('Converting to relative path:');
+      console.log('Absolute path:', normalizedAbsolutePath);
+      console.log('Base path:', normalizedBasePath);
+      
       // Get directory of the base path
-      const baseDir = path.dirname(basePath);
+      const baseDir = pathUtils.dirname(normalizedBasePath);
+      console.log('Base directory:', baseDir);
+      
+      // If the absolute path is in a completely different location than the base path,
+      // it might be better to keep it as absolute
+      if (!normalizedAbsolutePath.startsWith(baseDir.substring(0, 3))) {
+        console.log('Paths are on different drives, keeping absolute path');
+        return absolutePath;
+      }
       
       // Convert absolute path to relative path
-      const relativePath = path.relative(baseDir, absolutePath);
+      const relativePath = pathUtils.relative(baseDir, normalizedAbsolutePath);
+      console.log('Computed relative path:', relativePath);
+      
+      // For paths in the same directory, ensure they don't start with ./ for cleaner paths
+      const cleanRelativePath = relativePath.startsWith('./') ? relativePath.substring(2) : relativePath;
       
       // Return the relative path with forward slashes for consistency
-      return relativePath.replace(/\\/g, '/');
+      return cleanRelativePath.replace(/\\/g, '/');
     } catch (error) {
       console.error('Error converting to relative path:', error);
       return absolutePath;
@@ -478,15 +595,41 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
     try {
       // Check if the path is already absolute
-      if (path.isAbsolute(relativePath)) {
+      if (pathUtils.isAbsolute(relativePath)) {
         return relativePath;
       }
       
-      // Get directory of the base path
-      const baseDir = path.dirname(basePath);
+      // Normalize paths to use forward slashes
+      const normalizedBasePath = basePath.replace(/\\/g, '/');
       
-      // Convert relative path to absolute path
-      return path.resolve(baseDir, relativePath);
+      // Extract the directory from the base path
+      const baseDir = pathUtils.dirname(normalizedBasePath);
+      
+      console.log('Original master flow path:', basePath);
+      console.log('Normalized master flow path:', normalizedBasePath);
+      console.log('Extracted base directory:', baseDir);
+      console.log('Relative path to resolve:', relativePath);
+      
+      // For simple relative paths without directory components,
+      // place them in the same directory as the master flow
+      if (!relativePath.includes('/') && !relativePath.includes('\\')) {
+        // Ensure we have a separator between baseDir and relativePath
+        let resolvedPath;
+        if (baseDir.endsWith('/')) {
+          resolvedPath = baseDir + relativePath;
+        } else {
+          resolvedPath = baseDir + '/' + relativePath;
+        }
+        
+        console.log('Resolved simple path:', resolvedPath);
+        return resolvedPath;
+      }
+      
+      // For more complex relative paths, use the resolve function
+      const resolvedPath = pathUtils.resolve(baseDir, relativePath);
+      console.log('Resolved complex path:', resolvedPath);
+      
+      return resolvedPath;
     } catch (error) {
       console.error('Error converting to absolute path:', error);
       return relativePath;
@@ -501,24 +644,45 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
     // If we have a flow path, convert all flow node paths to relative paths
     if (state.flowPath) {
+      console.log('Saving flow to:', state.flowPath);
+      
       nodesToSave = nodesToSave.map((node: Node) => {
         if (node.data.type === 'flow' && node.data.code) {
-          // Skip if already a relative path
-          if (node.data.isRelativePath) {
-            return node;
+          // Check if the path is absolute (regardless of isRelativePath flag)
+          const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
+          
+          console.log('Processing flow node path:', node.data.code);
+          console.log('Is absolute path:', isAbsolutePath);
+          console.log('Is marked as relative:', node.data.isRelativePath);
+          
+          // Convert absolute paths to relative paths
+          if (isAbsolutePath) {
+            console.log('Converting absolute path to relative:', node.data.code);
+            
+            // Convert absolute path to relative path
+            const relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
+            
+            console.log('Converted to relative path:', relativePath);
+            
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                code: relativePath,
+                isRelativePath: true
+              }
+            };
+          } else if (!node.data.isRelativePath) {
+            // If it's not an absolute path but not marked as relative,
+            // mark it as relative for consistency
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isRelativePath: true
+              }
+            };
           }
-          
-          // Convert absolute path to relative path
-          const relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
-          
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              code: relativePath,
-              isRelativePath: true
-            }
-          };
         }
         return node;
       });
@@ -586,21 +750,59 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         try {
           const flow = JSON.parse(result.data);
           
+          console.log('Loading flow from:', result.filePath);
+          
+          // Store the master flow path for reference
+          const masterFlowPath = result.filePath;
+          
           // Convert relative paths to absolute paths for flow nodes
           const nodes = flow.nodes.map((node: Node) => {
-            if (node.data.type === 'flow' && node.data.code && node.data.isRelativePath) {
-              // Convert relative path to absolute path
-              const absolutePath = get().convertToAbsolutePath(node.data.code, result.filePath);
+            if (node.data.type === 'flow' && node.data.code) {
+              // Process both relative and absolute paths
+              const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
               
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  code: absolutePath,
-                  // Keep isRelativePath flag so we know to convert back when saving
-                  isRelativePath: true
-                }
-              };
+              if (!isAbsolutePath || node.data.isRelativePath) {
+                // It's a relative path - store both versions
+                const relativePath = node.data.code;
+                console.log('Found relative path in flow node:', relativePath);
+                
+                // Convert relative path to absolute path using the master flow file's location
+                const absolutePath = get().convertToAbsolutePath(relativePath, masterFlowPath);
+                
+                console.log('Master flow path:', masterFlowPath);
+                console.log('Relative path:', relativePath);
+                console.log('Resolved absolute path:', absolutePath);
+                
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    absolutePath: absolutePath, // Store absolute path for execution
+                    code: relativePath, // Keep relative path for display
+                    isRelativePath: true,
+                    flowFilePath: masterFlowPath // Store the parent flow path for nested resolution
+                  }
+                };
+              } else {
+                // It's an absolute path - convert to relative for display
+                const absolutePath = node.data.code;
+                const relativePath = get().convertToRelativePath(absolutePath, masterFlowPath);
+                
+                console.log('Converting absolute path to relative for display:');
+                console.log('Absolute path:', absolutePath);
+                console.log('Relative path for display:', relativePath);
+                
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    absolutePath: absolutePath, // Store absolute path for execution
+                    code: relativePath, // Show relative path in UI
+                    isRelativePath: true,
+                    flowFilePath: masterFlowPath // Store the parent flow path for nested resolution
+                  }
+                };
+              }
             }
             return node;
           });
@@ -721,18 +923,30 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // Start execution time tracking
             const startTime = Date.now();
             
-            // The code property contains the path to the flow file
-            let flowPath = node.data.code;
+            // Get the flow file path - use absolutePath if available, otherwise use code
+            let flowPath = node.data.absolutePath || node.data.code;
             if (!flowPath) {
               throw new Error('No flow file specified');
             }
             
-            // If the path is relative, convert it to absolute for execution
-            if (node.data.isRelativePath && state.flowPath) {
-              flowPath = get().convertToAbsolutePath(flowPath, state.flowPath);
-            } else if (node.data.isRelativePath) {
-              // If we have a relative path but no flowPath, we can't resolve it
-              throw new Error('Cannot resolve relative path: flow file has not been saved');
+            console.log('Flow node path before resolution:', flowPath);
+            console.log('Is relative path:', node.data.isRelativePath);
+            console.log('Absolute path available:', !!node.data.absolutePath);
+            console.log('Parent flow path:', node.data.flowFilePath || state.flowPath);
+            
+            // If we have a relative path and no absolutePath, we need to resolve it
+            if (node.data.isRelativePath && !node.data.absolutePath) {
+              // Determine the base path for resolution
+              // Use the node's flowFilePath if available (for nested flows), otherwise use the master flow path
+              const basePath = node.data.flowFilePath || state.flowPath;
+              
+              if (basePath) {
+                flowPath = get().convertToAbsolutePath(flowPath, basePath);
+                console.log('Resolved flow path for execution:', flowPath);
+              } else {
+                // If we have a relative path but no base path, we can't resolve it
+                throw new Error('Cannot resolve relative path: flow file has not been saved');
+              }
             }
             
             addLog('log', `Loading flow from: ${flowPath}`);
@@ -761,8 +975,15 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               code: flowPath,
               type: 'flow',
               input: processedInputs,
-              timeout: get().nodeExecutionTimeout
+              timeout: get().nodeExecutionTimeout,
+              // Pass the directory of the flow file as the base path for resolving nested flows
+              basePath: pathUtils.dirname(flowPath),
+              // Store the flow file path for reference
+              flowFilePath: flowPath
             };
+            
+            console.log('Executing flow with base path:', payload.basePath);
+            console.log('Flow file path:', flowPath);
             
             addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
             

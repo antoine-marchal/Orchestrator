@@ -73,7 +73,7 @@ function createWindow(flowFilePath) {
   
   defaultTitle = `Orchestrator v${app.getVersion()}`;
   
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === 'dev') {
     win.loadURL('http://localhost:5173');
     if (!flowFilePath) win.webContents.openDevTools();
   } else {

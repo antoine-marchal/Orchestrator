@@ -116,7 +116,7 @@ function parseFlowFile(flowFilePath) {
  * @param {boolean} [isTopLevel=true] - Whether this is a top-level flow execution
  * @returns {Promise<any>} - The result of the flow execution
  */
-async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true) {
+async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true, basePath = null) {
   return new Promise((resolve, reject) => {
     try {
       // Check for circular references
@@ -250,7 +250,11 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
         
         // Special handling for flow nodes to ensure nested flow execution
         if (node.data.type === 'flow') {
-          const flowResult = await executeFlowNode(node, nodeId, nodeInput, visited.flowPath, nodeResults);
+          // Get the base path for resolving nested flows
+          const currentFlowPath = visited.flowPath[visited.flowPath.length - 1];
+          const currentFlowDir = path.dirname(currentFlowPath);
+          
+          const flowResult = await executeFlowNode(node, nodeId, nodeInput, visited.flowPath, nodeResults, currentFlowDir);
           // If the result is an object with output and executionTime, extract the output
           return flowResult.output !== undefined ? flowResult.output : flowResult;
         }
@@ -324,11 +328,20 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
  */
 async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults) {
   // Get the path to the nested flow file
-  const nestedFlowPath = node.data.code || '';
+  let nestedFlowPath = node.data.code || '';
   
   // Check if we have a valid flow path
   if (!nestedFlowPath) {
     throw new Error(`Flow node ${nodeId} has no flow file path specified`);
+  }
+  
+  // If the path is relative and we have a parent flow path, resolve it relative to the parent flow's directory
+  if (!path.isAbsolute(nestedFlowPath) && flowPath.length > 0) {
+    const parentFlowPath = flowPath[flowPath.length - 1];
+    const parentDir = path.dirname(parentFlowPath);
+    console.log(`Resolving nested flow path: ${nestedFlowPath} relative to parent flow directory: ${parentDir}`);
+    nestedFlowPath = path.resolve(parentDir, nestedFlowPath);
+    console.log(`Resolved nested flow path: ${nestedFlowPath}`);
   }
   
   // Start execution time tracking
@@ -470,7 +483,14 @@ function processJobFile(filePath) {
   }
 
   if (type === "flow") {
-    const flowFilePath = code;
+    let flowFilePath = code;
+    
+    // If the path is relative and we have a basePath, resolve it
+    if (!path.isAbsolute(flowFilePath) && job.basePath) {
+      console.log(`Resolving relative path: ${flowFilePath} relative to ${job.basePath}`);
+      flowFilePath = path.resolve(job.basePath, flowFilePath);
+      console.log(`Resolved to: ${flowFilePath}`);
+    }
     
     // Check if the flow file exists
     if (!fs.existsSync(flowFilePath)) {
@@ -505,7 +525,15 @@ function processJobFile(filePath) {
           try {
             // Execute the flow file
             // Pass false for isTopLevel since this is being executed from a job
-            const flowResult = await executeFlowFile(flowFilePath, input, flowPath, false, true);
+            // Pass the basePath from the job if available
+            const flowResult = await executeFlowFile(
+              flowFilePath,
+              input,
+              flowPath,
+              false,
+              true,
+              job.basePath || path.dirname(flowFilePath)
+            );
             
             // Restore original console methods and get logs
             restoreConsole();
