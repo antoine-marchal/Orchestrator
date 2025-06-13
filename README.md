@@ -1,4 +1,4 @@
-# 🎭 Orchestrator
+# ![Orchestrator Logo](logo-full.png)
 
 Orchestrator is a cross-platform desktop application built with Electron, React, and Node.js. It enables you to visually orchestrate, edit, and execute custom scripts or nodes (JavaScript, Batch, Groovy, PowerShell, Playwright) through a modern, interactive graphical interface.
 
