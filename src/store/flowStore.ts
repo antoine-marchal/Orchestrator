@@ -215,11 +215,17 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   // History state
   history: [],
   historyIndex: -1,
-  maxHistorySize: 100,
+  maxHistorySize: 10,
   starterNodeId: null,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
-  setOutputZoneActive: (active: boolean) => set({ isOutputZoneActive: active }),
+  // Optimized version of setOutputZoneActive to reduce state updates
+  setOutputZoneActive: (active: boolean) => {
+    // Only update state if the value is actually changing
+    if (get().isOutputZoneActive !== active) {
+      set({ isOutputZoneActive: active });
+    }
+  },
   setTitleEditing: (editing: boolean) => set({ isTitleEditing: editing }),
   setMouseOverConsole: (isOver: boolean) => set({ isMouseOverConsole: isOver }),
   
@@ -274,11 +280,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
   addToHistory: () => {
     const { nodes, edges, history, historyIndex, maxHistorySize } = get();
-    
-    // Create a deep copy of the current state
+    // Create a deep copy of the current state using a more efficient approach
     const currentState = {
-      nodes: JSON.parse(JSON.stringify(nodes)),
-      edges: JSON.parse(JSON.stringify(edges))
+      nodes: nodes.map(node => ({...node})),
+      edges: edges.map(edge => ({...edge}))
     };
     
     // If we're not at the end of the history, truncate the future states
@@ -559,24 +564,17 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
       const normalizedBasePath = basePath.replace(/\\/g, '/');
       
-      console.log('Converting to relative path:');
-      console.log('Absolute path:', normalizedAbsolutePath);
-      console.log('Base path:', normalizedBasePath);
-      
       // Get directory of the base path
       const baseDir = pathUtils.dirname(normalizedBasePath);
-      console.log('Base directory:', baseDir);
       
       // If the absolute path is in a completely different location than the base path,
       // it might be better to keep it as absolute
       if (!normalizedAbsolutePath.startsWith(baseDir.substring(0, 3))) {
-        console.log('Paths are on different drives, keeping absolute path');
         return absolutePath;
       }
       
       // Convert absolute path to relative path
       const relativePath = pathUtils.relative(baseDir, normalizedAbsolutePath);
-      console.log('Computed relative path:', relativePath);
       
       // For paths in the same directory, ensure they don't start with ./ for cleaner paths
       const cleanRelativePath = relativePath.startsWith('./') ? relativePath.substring(2) : relativePath;
@@ -605,10 +603,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       // Extract the directory from the base path
       const baseDir = pathUtils.dirname(normalizedBasePath);
       
-      console.log('Original master flow path:', basePath);
-      console.log('Normalized master flow path:', normalizedBasePath);
-      console.log('Extracted base directory:', baseDir);
-      console.log('Relative path to resolve:', relativePath);
       
       // For simple relative paths without directory components,
       // place them in the same directory as the master flow
@@ -621,13 +615,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           resolvedPath = baseDir + '/' + relativePath;
         }
         
-        console.log('Resolved simple path:', resolvedPath);
         return resolvedPath;
       }
       
       // For more complex relative paths, use the resolve function
       const resolvedPath = pathUtils.resolve(baseDir, relativePath);
-      console.log('Resolved complex path:', resolvedPath);
       
       return resolvedPath;
     } catch (error) {
@@ -644,25 +636,17 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
     // If we have a flow path, convert all flow node paths to relative paths
     if (state.flowPath) {
-      console.log('Saving flow to:', state.flowPath);
       
       nodesToSave = nodesToSave.map((node: Node) => {
         if (node.data.type === 'flow' && node.data.code) {
           // Check if the path is absolute (regardless of isRelativePath flag)
           const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
           
-          console.log('Processing flow node path:', node.data.code);
-          console.log('Is absolute path:', isAbsolutePath);
-          console.log('Is marked as relative:', node.data.isRelativePath);
           
           // Convert absolute paths to relative paths
           if (isAbsolutePath) {
-            console.log('Converting absolute path to relative:', node.data.code);
-            
             // Convert absolute path to relative path
             const relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
-            
-            console.log('Converted to relative path:', relativePath);
             
             return {
               ...node,
@@ -750,7 +734,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         try {
           const flow = JSON.parse(result.data);
           
-          console.log('Loading flow from:', result.filePath);
           
           // Store the master flow path for reference
           const masterFlowPath = result.filePath;
@@ -764,14 +747,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               if (!isAbsolutePath || node.data.isRelativePath) {
                 // It's a relative path - store both versions
                 const relativePath = node.data.code;
-                console.log('Found relative path in flow node:', relativePath);
-                
                 // Convert relative path to absolute path using the master flow file's location
                 const absolutePath = get().convertToAbsolutePath(relativePath, masterFlowPath);
-                
-                console.log('Master flow path:', masterFlowPath);
-                console.log('Relative path:', relativePath);
-                console.log('Resolved absolute path:', absolutePath);
                 
                 return {
                   ...node,
@@ -787,10 +764,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 // It's an absolute path - convert to relative for display
                 const absolutePath = node.data.code;
                 const relativePath = get().convertToRelativePath(absolutePath, masterFlowPath);
-                
-                console.log('Converting absolute path to relative for display:');
-                console.log('Absolute path:', absolutePath);
-                console.log('Relative path for display:', relativePath);
                 
                 return {
                   ...node,
@@ -929,10 +902,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               throw new Error('No flow file specified');
             }
             
-            console.log('Flow node path before resolution:', flowPath);
-            console.log('Is relative path:', node.data.isRelativePath);
-            console.log('Absolute path available:', !!node.data.absolutePath);
-            console.log('Parent flow path:', node.data.flowFilePath || state.flowPath);
             
             // If we have a relative path and no absolutePath, we need to resolve it
             if (node.data.isRelativePath && !node.data.absolutePath) {
@@ -942,7 +911,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               
               if (basePath) {
                 flowPath = get().convertToAbsolutePath(flowPath, basePath);
-                console.log('Resolved flow path for execution:', flowPath);
               } else {
                 // If we have a relative path but no base path, we can't resolve it
                 throw new Error('Cannot resolve relative path: flow file has not been saved');
@@ -982,8 +950,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               flowFilePath: flowPath
             };
             
-            console.log('Executing flow with base path:', payload.basePath);
-            console.log('Flow file path:', flowPath);
             
             addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
             

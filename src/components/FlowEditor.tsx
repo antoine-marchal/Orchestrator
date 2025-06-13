@@ -41,7 +41,9 @@ import {
   Undo,
   Redo,
   Copy,
-  Clipboard
+  Clipboard,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
@@ -183,11 +185,10 @@ function Flow() {
     canRedo,
     // Copy/Paste functionality
     copySelectedNodes,
-    pasteNodes,
-    clearNodeSelection,
-    // Modal state
-    editorModal
+    pasteNodes
   } = useFlowStore();
+  
+  // Add state for edge animations
   const { fitView, getNodes, getEdges, project } = useReactFlow();
   const [contextMenu, setContextMenu] = useState<null | {
     x: number; y: number; flowX: number; flowY: number
@@ -637,7 +638,6 @@ function Flow() {
         multiSelectionKeyCode="Shift"
         defaultEdgeOptions={{
           type: 'smoothstep',
-          animated: true,
           style: { stroke: '#64748b', strokeWidth: 2 },
         }}
         proOptions={{ hideAttribution: true }}

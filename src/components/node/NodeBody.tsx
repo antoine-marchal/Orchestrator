@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useCallback, memo } from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
 
@@ -22,14 +22,29 @@ interface NodeBodyProps {
   setExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export const NodeBody: React.FC<NodeBodyProps> = ({
+export const NodeBody: React.FC<NodeBodyProps> = memo(({
   data,
   nodeId,
   expanded,
   setExpanded
 }) => {
-  const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable } = useFlowStore();
+  const { updateZoomOnScroll, updatePanOnDrag, updateNodeDraggable, setOutputZoneActive } = useFlowStore();
   const outputRef = useRef<HTMLDivElement>(null);
+  
+  // Memoize event handlers to prevent recreating them on each render
+  const handleMouseEnter = useCallback(() => {
+    updateNodeDraggable(nodeId, false);
+    updatePanOnDrag(false);
+    updateZoomOnScroll(false);
+    setOutputZoneActive(true);
+  }, [nodeId, updateNodeDraggable, updatePanOnDrag, updateZoomOnScroll, setOutputZoneActive]);
+  
+  const handleMouseLeave = useCallback(() => {
+    updateNodeDraggable(nodeId, true);
+    updatePanOnDrag(true);
+    updateZoomOnScroll(true);
+    setOutputZoneActive(false);
+  }, [nodeId, updateNodeDraggable, updatePanOnDrag, updateZoomOnScroll, setOutputZoneActive]);
   
   // Handle wheel events with proper passive: false option
   useEffect(() => {
@@ -54,7 +69,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
         currentOutputRef.removeEventListener('wheel', handleWheel);
       }
     };
-  }, [outputRef.current]); // Re-run when the ref changes
+  }, []); // Only run once on mount
   if (data.type === 'constant') {
     return null;
   }
@@ -65,18 +80,11 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
     const fileName = flowPath.split(/[\\/]/).pop() || 'Unknown flow';
     
     return (
-      <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
-        updateNodeDraggable(nodeId, false);
-        updatePanOnDrag(false);
-        updateZoomOnScroll(false);
-        useFlowStore.getState().setOutputZoneActive(true);
-      }}
-        onMouseLeave={() => {
-          updateNodeDraggable(nodeId, true);
-          updatePanOnDrag(true);
-          updateZoomOnScroll(true);
-          useFlowStore.getState().setOutputZoneActive(false);
-        }}>
+      <div
+        className="flex-1 overflow-hidden p-4 border-b border-gray-700"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         <div className="text-sm text-gray-400 space-y-2 relative">
           <div className="bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
             <div className="text-emerald-400 text-xs font-mono mb-1">Flow File:</div>
@@ -92,7 +100,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
                   (expanded ? "max-h-[80vh]" : "max-h-64") +
                   " overflow-y-auto select-text"
                 }
-                key={`flow-output-${nodeId}-${Date.now()}`} // Force re-render when output changes
+                key={`flow-output-${nodeId}`} // Stable key to prevent unnecessary re-renders
                 onMouseDown={(e) => {
                   e.stopPropagation();
                 }}
@@ -157,18 +165,11 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
   }
   // Flow store functions are already destructured at the top of the component
   return (
-    <div className="flex-1 overflow-hidden p-4 border-b border-gray-700" onMouseEnter={() => {
-      updateNodeDraggable(nodeId, false);
-      updatePanOnDrag(false);
-      updateZoomOnScroll(false);
-      useFlowStore.getState().setOutputZoneActive(true);
-    }}
-      onMouseLeave={() => {
-        updateNodeDraggable(nodeId, true);
-        updatePanOnDrag(true);
-        updateZoomOnScroll(true);
-        useFlowStore.getState().setOutputZoneActive(false);
-      }}>
+    <div
+      className="flex-1 overflow-hidden p-4 border-b border-gray-700"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
 
 <div className="text-sm text-gray-400 space-y-2 relative">
   {data.output !== undefined && (
@@ -180,7 +181,7 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
           (expanded ? "max-h-[80vh]" : "max-h-64") +
           " overflow-y-auto select-text"
         }
-        key={`output-${nodeId}-${Date.now()}`} // Force re-render when output changes
+        key={`output-${nodeId}`} // Stable key to prevent unnecessary re-renders
         onMouseDown={(e) => {
           e.stopPropagation();
         }}
@@ -242,4 +243,12 @@ export const NodeBody: React.FC<NodeBodyProps> = ({
 </div>
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  // Only re-render if these specific props change
+  return (
+    prevProps.data.output === nextProps.data.output &&
+    prevProps.expanded === nextProps.expanded &&
+    prevProps.nodeId === nextProps.nodeId
+  );
+});
