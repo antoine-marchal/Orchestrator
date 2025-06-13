@@ -172,6 +172,7 @@ interface FlowState {
   pasteNodes: () => void;
   getClipboardNodes: () => Node[] | null;
   clearNodeSelection: (nodes : Node[]) => void;
+  outputClearCounter: number;
 }
 function prettyFormat(val: any): string {
   if (val == null) return '';
@@ -217,6 +218,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   historyIndex: -1,
   maxHistorySize: 10,
   starterNodeId: null,
+  outputClearCounter: 0,
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
   // Optimized version of setOutputZoneActive to reduce state updates
@@ -539,7 +541,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         ...node.data,
         output: undefined
       }
-    }))
+    })),
+    outputClearCounter: state.outputClearCounter + 1,
   })),
   removeConnection: (edgeId) => {
     // Add current state to history before making changes

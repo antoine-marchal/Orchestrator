@@ -55,6 +55,7 @@ if (!gotTheLock) {
 
 let backendProcess;
 let mainWindow;
+let splashWindow = null;
 let defaultTitle;
 
 /**
@@ -72,11 +73,12 @@ function createWindow(flowFilePath) {
       contextIsolation: true,
       preload: path.join(process.resourcesPath, 'preload', 'preload.js')
     },
+    show: false // Start hidden
   });
   
   defaultTitle = `Orchestrator v${app.getVersion()}`;
   
-  if (process.env.NODE_ENV === 'dev') {
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp) {
     win.loadURL('http://localhost:5173');
     if (!flowFilePath) win.webContents.openDevTools();
   } else {
@@ -222,6 +224,40 @@ function stopBackend() {
   }
 }
 
+/**
+ * Creates a splash screen window
+ * @returns {BrowserWindow} The created splash window
+ */
+function createSplashWindow() {
+  const splash = new BrowserWindow({
+    width: 400,
+    height: 300,
+    transparent: false,
+    frame: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      additionalArguments: [
+        '--splashLogo=' + path.join(process.resourcesPath, 'logo.png')
+      ]
+    },
+  });
+  
+  // Load the splash screen HTML directly
+  splash.loadFile('splash.html');
+  
+  // Center the splash window
+  splash.center();
+  
+  return splash;
+}
+
+// Expose version to splash screen
+ipcMain.handle('get-version', () => {
+  return app.getVersion();
+});
+
 app.whenReady().then(() => {
   const { ipcMain } = require('electron');
   const fs = require('fs');
@@ -265,92 +301,120 @@ app.whenReady().then(() => {
     
     return; // Skip UI initialization in silent mode
   }
-
-
-ipcMain.handle('save-flow-as', async (event, data) => {
-  const result = await dialog.showSaveDialog({
-    filters: [{ name: 'Flow Files', extensions: ['or', 'json'] }],
-    defaultPath: 'my-flow.or'
-  });
-  if (result.canceled || !result.filePath) return null;
-  fs.writeFileSync(result.filePath, data, 'utf8');
-  return result.filePath;
-});
-ipcMain.handle('execute-node-job', async (event, payload) => {
-  // Use the same logic as in your TS `executeNode` for file IPC
-  const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
-
-  const backendPath = isDev
-    ? path.join(__dirname, 'backend')
-    : path.join(process.resourcesPath, 'backend');
- 
-  const inbox = path.join(backendPath, 'inbox');
-  const outbox = path.join(backendPath, 'outbox');
-  if (!fs.existsSync(inbox)) fs.mkdirSync(inbox, { recursive: true });
-  if (!fs.existsSync(outbox)) fs.mkdirSync(outbox, { recursive: true });
-
-  const jobFile = path.join(inbox, `${payload.id}.json`);
-  const resultFile = path.join(outbox, `${payload.id}.result.json`);
-
-  await fsp.writeFile(jobFile, JSON.stringify(payload, null, 2), 'utf8');
-
-  // Wait for result
-  let waited = 0, timeout = payload.timeout || 30000;
-  while (!fs.existsSync(resultFile)) {
-    if (waited > timeout) throw new Error("Timeout waiting for backend result.");
-    await new Promise(res => setTimeout(res, 100));
-    waited += 100;
-  }
-
-  const resultData = JSON.parse(await fsp.readFile(resultFile, 'utf8'));
-  await new Promise(res => setTimeout(res, 250));
-  await fsp.unlink(resultFile);
-  return resultData;
-});
-
-ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
+  let splashCreatedAt = Date.now() ;
+  // Create splash window first
   try {
-    // Get the backend directory
-    const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
-    const backendDir = isDev
-      ? path.join(__dirname, 'backend')
-      : path.join(process.resourcesPath, 'backend');
-    
-    // Import the executeFlowFile function from poller.cjs
-    const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
-    
-    // Execute the flow file
-    const result = await executeFlowFile(flowFilePath, input);
-    return result;
+    splashWindow = createSplashWindow();
+    console.log('Splash window created');
   } catch (error) {
-    console.error(`Error executing flow file: ${error.message}`);
-    throw error;
+    console.error('Failed to create splash window:', error);
   }
-});
-
+  
+  // Start backend
   startBackend();
+  
+  // Create main window
   createMainWindow();
   
-  mainWindow.webContents.on('did-finish-load', () => {
-    // Find the first argument that looks like an or/json file
-    let flowJsonPath = process.argv.find(arg => arg.endsWith('.or') || arg.endsWith('.json'));
-    flowJsonPath = cleanArgPath(flowJsonPath);
-    console.log('Flow JSON path:', flowJsonPath);
-    if (flowJsonPath) {
-      fs.readFile(flowJsonPath, 'utf-8', (err, data) => {
-        if (err) {
-          console.error('Failed to read flow JSON file:', err);
-          mainWindow.webContents.send('load-flow-json', [flowJsonPath, null]);
-        } else {
-          mainWindow.webContents.send('load-flow-json', [flowJsonPath, data]);
+  // When main window is ready, close splash
+  if (splashWindow) {
+    const MIN_SPLASH_DURATION = 5000; // 3s en ms
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('Main window loaded, closing splash');
+      
+      // Find the first argument that looks like an or/json file
+      let flowJsonPath = process.argv.find(arg => arg.endsWith('.or') || arg.endsWith('.json'));
+      flowJsonPath = cleanArgPath(flowJsonPath);
+      console.log('Flow JSON path:', flowJsonPath);
+      if (flowJsonPath) {
+        fs.readFile(flowJsonPath, 'utf-8', (err, data) => {
+          if (err) {
+            console.error('Failed to read flow JSON file:', err);
+            mainWindow.webContents.send('load-flow-json', [flowJsonPath, null]);
+          } else {
+            mainWindow.webContents.send('load-flow-json', [flowJsonPath, data]);
+          }
+        });
+      }
+      else{
+        mainWindow.setTitle(defaultTitle);
+      }
+      
+    const elapsed = Date.now() - splashCreatedAt;
+      const remaining = Math.max(MIN_SPLASH_DURATION - elapsed, 0);
+
+      setTimeout(() => {
+        if (splashWindow && !splashWindow.isDestroyed()) {
+          splashWindow.close();
+          splashWindow = null;
         }
-      });
-    }
-    else{
-      mainWindow.setTitle(defaultTitle);
-    }
+        mainWindow.show();
+      }, remaining);
+    });
+  }
+
+  ipcMain.handle('save-flow-as', async (event, data) => {
+    const result = await dialog.showSaveDialog({
+      filters: [{ name: 'Flow Files', extensions: ['or', 'json'] }],
+      defaultPath: 'my-flow.or'
+    });
+    if (result.canceled || !result.filePath) return null;
+    fs.writeFileSync(result.filePath, data, 'utf8');
+    return result.filePath;
   });
   
+  ipcMain.handle('execute-node-job', async (event, payload) => {
+    // Use the same logic as in your TS `executeNode` for file IPC
+    const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+
+    const backendPath = isDev
+      ? path.join(__dirname, 'backend')
+      : path.join(process.resourcesPath, 'backend');
+   
+    const inbox = path.join(backendPath, 'inbox');
+    const outbox = path.join(backendPath, 'outbox');
+    if (!fs.existsSync(inbox)) fs.mkdirSync(inbox, { recursive: true });
+    if (!fs.existsSync(outbox)) fs.mkdirSync(outbox, { recursive: true });
+
+    const jobFile = path.join(inbox, `${payload.id}.json`);
+    const resultFile = path.join(outbox, `${payload.id}.result.json`);
+
+    await fsp.writeFile(jobFile, JSON.stringify(payload, null, 2), 'utf8');
+
+    // Wait for result
+    let waited = 0, timeout = payload.timeout || 30000;
+    while (!fs.existsSync(resultFile)) {
+      if (waited > timeout) throw new Error("Timeout waiting for backend result.");
+      await new Promise(res => setTimeout(res, 100));
+      waited += 100;
+    }
+
+    const resultData = JSON.parse(await fsp.readFile(resultFile, 'utf8'));
+    await new Promise(res => setTimeout(res, 250));
+    await fsp.unlink(resultFile);
+    return resultData;
+  });
+
+  ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
+    try {
+      // Get the backend directory
+      const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+      const backendDir = isDev
+        ? path.join(__dirname, 'backend')
+        : path.join(process.resourcesPath, 'backend');
+      
+      // Import the executeFlowFile function from poller.cjs
+      const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
+      
+      // Execute the flow file
+      const result = await executeFlowFile(flowFilePath, input);
+      return result;
+    } catch (error) {
+      console.error(`Error executing flow file: ${error.message}`);
+      throw error;
+    }
+  });
+
   ipcMain.handle('open-flow-file', async () => {
     const result = await dialog.showOpenDialog({
       filters: [{ name: 'Flow Files', extensions: ['or', 'json'] }],
@@ -367,6 +431,7 @@ ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
     openFlowInNewWindow(flowFilePath);
     return true;
   });
+  
   ipcMain.on('set-title', (event, title) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
@@ -377,12 +442,10 @@ ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
       }
     }
   });
+  
   ipcMain.on('save-flow-to-path', (event, filePath, data) => {
     require('fs').writeFileSync(filePath, data, 'utf8');
   });
-  
-
-  
 });
 
 app.on('window-all-closed', () => {

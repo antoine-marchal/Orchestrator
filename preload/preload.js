@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld('backendAPI', {
 // Expose Electron API for file operations and window management
 contextBridge.exposeInMainWorld('electronAPI', {
   /**
+   * Get the application version
+   * @returns {Promise<string>} - The application version
+   */
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  /**
    * Set the window title
    * @param {string} title - The title to set
    */

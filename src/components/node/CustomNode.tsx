@@ -12,7 +12,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
 
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
-
+  
   const getNodeLabel = (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     return node?.data?.label || nodeId;
@@ -20,7 +20,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
 
   const inputEdges = edges.filter(edge => edge.target === id);
   const outputEdges = edges.filter(edge => edge.source === id);
-
+  const outputClearCounter = useFlowStore(state => state.outputClearCounter);
   const contentRef = useRef<HTMLDivElement>(null);
   const [minHeight, setMinHeight] = useState(148);
   const [maxHeight, setMaxHeight] = useState(10000);
@@ -40,7 +40,16 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
 
     return () => resizeObserver.disconnect();
   }, []);
-
+  useEffect(() => {
+    // À chaque clearAllOutputs, on recalcule la taille minimale/naturelle
+    const element = contentRef.current;
+    if (element) {
+      // Forcer la taille naturelle après clear
+      const newHeight = element.getBoundingClientRect().height;
+      setMinHeight(newHeight);
+      setMaxHeight(newHeight);
+    }
+  }, [outputClearCounter]);
   return (
     <div
       className={`relative ${data.type === 'flow' ? 'bg-emerald-900' : 'bg-gray-800'} rounded-lg ${

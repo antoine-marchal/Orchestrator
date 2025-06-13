@@ -16,6 +16,23 @@ if (!fs.existsSync(OUTBOX)) fs.mkdirSync(OUTBOX, { recursive: true });
 // Command line arguments
 const isSilent = process.argv.includes('--silent') || process.argv.includes('-s');
 const shouldShutdownAfterExecution = process.argv.includes('-s');
+const isPackaged = (() => {
+  // Heuristic: in prod, process.resourcesPath existe (fourni par Electron main)
+  return process.resourcesPath !== undefined;
+})();
+
+
+const getResourcePath = () => {
+  if (isPackaged && process.resourcesPath) {
+    // Ex : C:\Users\xxx\AppData\Local\Programs\Orchestrator\resources
+    return path.join(process.resourcesPath, 'backend');
+  } else {
+    return path.join(__dirname);
+  }
+};
+
+// Fabrique le chemin absolu vers groovyExec.jar
+const groovyJarPath = path.join(getResourcePath(), 'groovyExec.jar');
 
 // Track if we're executing a master flow (top-level flow)
 let isMasterFlowRunning = false;
@@ -625,7 +642,9 @@ function processGroovyNode(id, code, input, finish) {
     return;
   }
   
-  exec(`java -jar ${isSilent ? `resources/backend/` : ``}groovyExec.jar "${tempGroovyPath}"`, (error, stdout, stderr) => {
+  const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}"`;
+exec(javaCmd, (error, stdout, stderr) => {
+
     fs.unlink(tempGroovyPath, () => { });
   
     let outputValue = null;
