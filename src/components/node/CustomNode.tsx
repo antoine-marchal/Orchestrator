@@ -1,4 +1,4 @@
-import React, { memo, useState, useLayoutEffect, useRef } from 'react';
+import React, { memo, useState, useRef, useEffect } from 'react';
 import { NodeResizer, NodeProps } from 'reactflow';
 import { useFlowStore } from '../../store/flowStore';
 import { NodeHeader } from './NodeHeader';
@@ -7,12 +7,12 @@ import { NodeFooter } from './NodeFooter';
 import { Loader2 } from 'lucide-react';
 
 const CustomNode = ({ data, id, selected }: NodeProps) => {
-  // Access flow store actions and state
   const { updateNodeData, executeNode, edges, removeNode, nodes, nodeLoading } = useFlowStore();
   const isLoading = nodeLoading?.[id];
-  const [isEditing] = React.useState(false);
+
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
+
   const getNodeLabel = (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     return node?.data?.label || nodeId;
@@ -20,46 +20,42 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
 
   const inputEdges = edges.filter(edge => edge.target === id);
   const outputEdges = edges.filter(edge => edge.source === id);
+
+  const contentRef = useRef<HTMLDivElement>(null);
   const [minHeight, setMinHeight] = useState(148);
   const [maxHeight, setMaxHeight] = useState(10000);
-  const [nodeHeight, setNodeHeight] = useState(148);
-  const contentRef = useRef<HTMLDivElement>(null);
-  
-  // Update node dimensions when content changes
-  useLayoutEffect(() => {
-    if (contentRef.current) {
-      setMinHeight(contentRef.current.offsetHeight);
-      setMaxHeight(contentRef.current.offsetHeight);
-      setNodeHeight(contentRef.current.offsetHeight);
-    }
-  }, [data, data.output, isEditing, expanded, connecting, inputEdges.length, outputEdges.length]);
-  
-  // Additional effect specifically for output changes to ensure height refresh
-  useLayoutEffect(() => {
-    if (contentRef.current && data.output !== undefined) {
-      // Small delay to ensure DOM has updated with new output content
-      const timer = setTimeout(() => {
-        if (contentRef.current) {
-          setMinHeight(contentRef.current.offsetHeight);
-          setMaxHeight(contentRef.current.offsetHeight);
-          setNodeHeight(contentRef.current.offsetHeight);
-        }
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [data.output]);
+
+  // 🔁 Use ResizeObserver for accurate and performant height tracking
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      const height = entry.contentRect.height;
+      setMinHeight(height);
+      setMaxHeight(height);
+    });
+
+    resizeObserver.observe(element);
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   return (
-    <div className={`relative ${data.type === 'flow' ? 'bg-emerald-900/80' : 'bg-gray-800'} rounded-lg ${
-      selected
-        ? data.type === 'flow'
-          ? 'ring-2 ring-emerald-500'
-          : 'ring-2 ring-blue-500'
-        : ''
-    }`} style={{ height: nodeHeight }}>
+    <div
+      className={`relative ${data.type === 'flow' ? 'bg-emerald-900' : 'bg-gray-800'} rounded-lg ${
+        selected
+          ? data.type === 'flow'
+            ? 'ring-2 ring-emerald-500'
+            : 'ring-2 ring-blue-500'
+          : ''
+      }`}
+    >
       <div
         ref={contentRef}
-        className={`flex flex-col transition-all duration-200 ${isLoading ? 'blur-sm pointer-events-none select-none' : ''}`}
+        className={`flex flex-col transition-[height] duration-200 ${
+          isLoading ? 'opacity-50 pointer-events-none select-none' : ''
+        }`}
       >
         <NodeResizer
           color="#00000000"
@@ -68,6 +64,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
           minHeight={minHeight}
           maxHeight={maxHeight}
         />
+
         <NodeHeader
           data={data}
           nodeId={id}
@@ -76,24 +73,27 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
           onExecute={() => executeNode(id)}
           onDelete={() => removeNode(id)}
         />
+
         <NodeBody
           data={data}
           nodeId={id}
-          isEditing={isEditing}
+          isEditing={false}
           onCodeChange={(value) => value && updateNodeData(id, { code: value })}
           setExpanded={setExpanded}
           expanded={expanded}
         />
+
         <NodeFooter
           nodeId={id}
           type={data.type}
           inputEdges={inputEdges}
           outputEdges={outputEdges}
           getNodeLabel={getNodeLabel}
-          isEditing={isEditing}
+          isEditing={false}
           setConnecting={setConnecting}
         />
       </div>
+
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/30 z-20 rounded-lg">
           <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />

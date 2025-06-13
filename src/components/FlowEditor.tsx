@@ -189,7 +189,7 @@ function Flow() {
   } = useFlowStore();
   
   // Add state for edge animations
-  const { fitView, getNodes, getEdges, project } = useReactFlow();
+  const { fitView, getNodes, getEdges, screenToFlowPosition  } = useReactFlow();
   const [contextMenu, setContextMenu] = useState<null | {
     x: number; y: number; flowX: number; flowY: number
   }>(null);
@@ -370,7 +370,7 @@ function Flow() {
   const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
-    const flowPoint = project({
+    const flowPoint = screenToFlowPosition({
       x: event.clientX - bounds.left,
       y: event.clientY - bounds.top
     });
@@ -381,7 +381,7 @@ function Flow() {
       flowY: flowPoint.y
     });
     setDropdownMenu(false);
-  }, [project]);
+  }, [screenToFlowPosition]);
   
 
   // For Add Node button (dropdown)
@@ -412,7 +412,7 @@ function Flow() {
       if (container) {
         const rect = container.getBoundingClientRect();
         center = { x: rect.width / 2, y: rect.height / 2 };
-        position = project(center);
+        position = screenToFlowPosition(center);
       } else {
         position = { x: 100, y: 100 };
       }
@@ -620,7 +620,7 @@ function Flow() {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
-        snapToGrid
+        snapToGrid={true}
         snapGrid={[15, 15]}
         deleteKeyCode="Delete"
         onPaneClick={handlePaneClick}
@@ -630,20 +630,21 @@ function Flow() {
         panOnDrag={panOnDrag}
         panOnScroll={false}
         zoomOnScroll={zoomOnScroll}
-        zoomOnPinch={true}
+        zoomOnPinch={false}
+        onlyRenderVisibleElements={true}
         isValidConnection={isValidConnection}
         onPaneContextMenu={handlePaneContextMenu}
         onNodeDoubleClick={handleNodeDoubleClick}
         onSelectionChange={onSelectionChange}
         multiSelectionKeyCode="Shift"
         defaultEdgeOptions={{
-          type: 'smoothstep',
+          type: 'step',
           style: { stroke: '#64748b', strokeWidth: 2 },
         }}
         proOptions={{ hideAttribution: true }}
       >
         <Background />
-
+{/*}
         <MiniMap
           nodeColor={(node) => {
             if (node.data.type === 'constant') return '#9333ea';
@@ -651,6 +652,7 @@ function Flow() {
             return '#3b82f6';
           }}
         />
+        */}
        <Panel position="top-right" className="flex gap-2 flex-wrap">
         {/* File Operations Group */}
         <div className="flex gap-2 mr-2">

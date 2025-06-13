@@ -33,6 +33,9 @@ function cleanArgPath(str) {
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('disable-accelerated-video-decode');
 app.disableHardwareAcceleration();
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -79,6 +82,39 @@ function createWindow(flowFilePath) {
   } else {
     win.loadFile(path.join('dist/index.html'));
   }
+  win.webContents.setFrameRate(30);
+  win.webContents.setBackgroundThrottling(true);
+  win.webContents.executeJavaScript(`
+    console.log('🧪 PERF BENCHMARK START');
+  
+    let frameCount = 0;
+    let lastTime = performance.now();
+  
+    function measureFPS(now) {
+      frameCount++;
+      if (now - lastTime >= 60000) {
+        console.log('FPS:', frameCount);
+        frameCount = 0;
+        lastTime = now;
+      }
+      requestAnimationFrame(measureFPS);
+    }
+  
+    requestAnimationFrame(measureFPS);
+  
+    setInterval(() => {
+      if (performance.memory) {
+        const mem = performance.memory;
+        console.log(
+          'Memory Used:',
+          (mem.usedJSHeapSize / 1024 / 1024).toFixed(1) + ' MB',
+          '| Total:',
+          (mem.totalJSHeapSize / 1024 / 1024).toFixed(1) + ' MB'
+        );
+      }
+    }, 60000);
+  `);
+  
   
   // If a flow file path was provided, set it up to be loaded when the window is ready
   if (flowFilePath) {
