@@ -2,6 +2,9 @@ const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
+// Get the Node.js executable path from environment variable or use 'node' as default
+const nodeExecutablePath = process.env.NODE_EXECUTABLE_PATH || 'node';
+
 // Constants
 const INBOX = path.join(__dirname, "inbox");
 const OUTBOX = path.join(__dirname, "outbox");
@@ -726,7 +729,7 @@ fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf
 
   fs.writeFileSync(tempScriptPath, codeWithInput, "utf8");
 
-  exec(`node "${tempScriptPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
+  exec(`${nodeExecutablePath} "${tempScriptPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
     fs.unlink(tempScriptPath, () => {});
     let outputValue = null;
     try {

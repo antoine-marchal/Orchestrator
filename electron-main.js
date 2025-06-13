@@ -121,13 +121,9 @@ function startBackend(silent=false) {
     ? path.join(__dirname, 'backend')
     : path.join(process.resourcesPath, 'backend');
 
-  const nodeBin = path.join(backendDir, 'node.exe');
+  const bundledNodeBin = path.join(backendDir, 'node.exe');
   const pollerScript = path.join(backendDir, 'poller.cjs');
 
-  if (!fs.existsSync(nodeBin)) {
-    console.error('Cannot start backend: node.exe not found:', nodeBin);
-    return;
-  }
   if (!fs.existsSync(pollerScript)) {
     console.error('Cannot start backend: poller.js not found:', pollerScript);
     return;
@@ -138,9 +134,39 @@ function startBackend(silent=false) {
     //args.push('--silent');
   }
   
+  // Try to use system Node.js first
+  let useSystemNode = true;
+  let nodeBin = 'node';
+  
+  try {
+    // Check if system Node.js is available by running a simple command
+    const { status } = require('child_process').spawnSync(nodeBin, ['--version']);
+    if (status !== 0) {
+      useSystemNode = false;
+    }
+  } catch (error) {
+    console.log('System Node.js not available, falling back to bundled version');
+    useSystemNode = false;
+  }
+  
+  // Fall back to bundled Node.js if system Node.js is not available
+  if (!useSystemNode) {
+    if (!fs.existsSync(bundledNodeBin)) {
+      console.error('Cannot start backend: bundled node.exe not found:', bundledNodeBin);
+      return;
+    }
+    nodeBin = bundledNodeBin;
+  }
+  
+  // Pass information about which Node.js is being used to the poller script
+  const env = Object.assign({}, process.env, {
+    NODE_EXECUTABLE_PATH: nodeBin
+  });
+  
   backendProcess = spawn(nodeBin, args, {
     stdio: 'inherit',
-    cwd: backendDir
+    cwd: backendDir,
+    env: env
   });
   
 }
