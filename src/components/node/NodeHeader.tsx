@@ -48,8 +48,20 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           }
         }
         
+        //console.log('Attempting to open flow node in new window');
+        //console.log('electronAPI available:', !!window.electronAPI);
+        //console.log('openFlowInNewWindow available:', !!(window.electronAPI?.openFlowInNewWindow));
+        //console.log('Flow path:', flowPath);
+        
         if (window.electronAPI?.openFlowInNewWindow) {
-          await window.electronAPI.openFlowInNewWindow(flowPath);
+          try {
+            const result = await window.electronAPI.openFlowInNewWindow(flowPath);
+            //console.log('Open flow result:', result);
+          } catch (error) {
+            console.error('Error opening flow in new window:', error);
+          }
+        } else {
+          console.error('openFlowInNewWindow API not available');
         }
       }
   }

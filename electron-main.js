@@ -64,6 +64,48 @@ let defaultTitle;
  * @returns {BrowserWindow} The created window
  */
 function createWindow(flowFilePath) {
+  // Determine if we're in development mode
+  const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+  
+  // Choose the appropriate preload path based on environment
+  let preloadPath;
+  if (isDev) {
+    // In development, use the local preload.js file
+    preloadPath = path.join(__dirname, 'preload', 'preload.js');
+  } else {
+    // In production, use the one in resources
+    preloadPath = path.join(process.resourcesPath, 'preload', 'preload.js');
+  }
+  
+  //console.log('Creating window with:');
+  //console.log('- isDev:', isDev);
+  //console.log('- preloadPath:', preloadPath);
+  //console.log('- __dirname:', __dirname);
+  //console.log('- process.resourcesPath:', process.resourcesPath);
+  //console.log('- preloadPath exists:', require('fs').existsSync(preloadPath));
+  
+  // If preload path doesn't exist, try alternative locations
+  if (!require('fs').existsSync(preloadPath)) {
+    console.log('Preload path not found, trying alternatives...');
+    
+    // Try alternative locations
+    const alternatives = [
+      path.join(__dirname, 'preload.js'),
+      path.join(process.resourcesPath, 'preload.js'),
+      path.join(__dirname, 'dist', 'preload', 'preload.js'),
+      path.join(process.cwd(), 'preload', 'preload.js')
+    ];
+    
+    for (const alt of alternatives) {
+      console.log(`Checking alternative: ${alt}`);
+      if (require('fs').existsSync(alt)) {
+        console.log(`Found alternative preload at: ${alt}`);
+        preloadPath = alt;
+        break;
+      }
+    }
+  }
+  
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -71,7 +113,8 @@ function createWindow(flowFilePath) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(process.resourcesPath, 'preload', 'preload.js')
+      preload: preloadPath,
+      devTools: true // Always enable DevTools for debugging
     },
     show: false // Start hidden
   });
@@ -141,7 +184,24 @@ function createWindow(flowFilePath) {
  * @param {string} flowFilePath - Path to the flow file to open
  */
 function openFlowInNewWindow(flowFilePath) {
-  createWindow(flowFilePath);
+  console.log('Opening flow in new window:', flowFilePath);
+  try {
+    const newWindow = createWindow(flowFilePath);
+    console.log('New window created successfully');
+    
+    // Ensure the window is shown immediately for flow nodes
+    newWindow.webContents.once('did-finish-load', () => {
+      //console.log('New window content loaded, showing window');
+      newWindow.show();
+      newWindow.focus();
+      //console.log('New window shown and focused');
+    });
+    
+    return newWindow;
+  } catch (error) {
+    console.error('Error creating new window:', error);
+    throw error;
+  }
 }
 
 // Set mainWindow to the first created window
@@ -305,7 +365,7 @@ app.whenReady().then(() => {
   // Create splash window first
   try {
     splashWindow = createSplashWindow();
-    console.log('Splash window created');
+    //console.log('Splash window created');
   } catch (error) {
     console.error('Failed to create splash window:', error);
   }
@@ -342,13 +402,29 @@ app.whenReady().then(() => {
       
     const elapsed = Date.now() - splashCreatedAt;
       const remaining = Math.max(MIN_SPLASH_DURATION - elapsed, 0);
+      
+      //console.log(`Splash window will close in ${remaining}ms (elapsed: ${elapsed}ms, min duration: ${MIN_SPLASH_DURATION}ms)`);
 
       setTimeout(() => {
+        //console.log('Closing splash window and showing main window');
         if (splashWindow && !splashWindow.isDestroyed()) {
-          splashWindow.close();
-          splashWindow = null;
+          try {
+            splashWindow.close();
+            //console.log('Splash window closed successfully');
+            splashWindow = null;
+          } catch (error) {
+            console.error('Error closing splash window:', error);
+          }
         }
-        mainWindow.show();
+        
+        try {
+          mainWindow.show();
+          //console.log('Main window shown successfully');
+          // Ensure the main window is focused
+          mainWindow.focus();
+        } catch (error) {
+          console.error('Error showing main window:', error);
+        }
       }, remaining);
     });
   }
@@ -427,9 +503,19 @@ app.whenReady().then(() => {
   });
   
   ipcMain.handle('open-flow-in-new-window', async (event, flowFilePath) => {
-    if (!flowFilePath) return false;
-    openFlowInNewWindow(flowFilePath);
-    return true;
+    console.log('IPC: open-flow-in-new-window received with path:', flowFilePath);
+    if (!flowFilePath) {
+      //console.log('IPC: open-flow-in-new-window - No flow path provided');
+      return false;
+    }
+    try {
+      openFlowInNewWindow(flowFilePath);
+      //console.log('IPC: open-flow-in-new-window - Successfully opened flow');
+      return true;
+    } catch (error) {
+      console.error('IPC: open-flow-in-new-window - Error opening flow:', error);
+      return false;
+    }
   });
   
   ipcMain.on('set-title', (event, title) => {
