@@ -211,7 +211,7 @@ function createMainWindow() {
 
 function startBackend(silent=false) {
   if (backendProcess) return;
-
+ 
   // Use process.resourcesPath for production, __dirname for dev
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
 
@@ -221,7 +221,7 @@ function startBackend(silent=false) {
 
   const bundledNodeBin = path.join(backendDir, 'node.exe');
   const pollerScript = path.join(backendDir, 'poller.cjs');
-
+  
   if (!fs.existsSync(pollerScript)) {
     console.error('Cannot start backend: poller.js not found:', pollerScript);
     return;
@@ -254,6 +254,7 @@ function startBackend(silent=false) {
       return;
     }
     nodeBin = bundledNodeBin;
+    
   }
   
   // Pass information about which Node.js is being used to the poller script
@@ -371,6 +372,7 @@ app.whenReady().then(() => {
   }
   
   // Start backend
+
   startBackend();
   
   // Create main window
