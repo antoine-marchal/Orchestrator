@@ -58,6 +58,13 @@ interface BackendAPI {
    * @returns The result of the flow execution
    */
   executeFlowFile: (flowFilePath: string, input?: any) => Promise<any>;
+  
+  /**
+   * Create a stop signal file for a running job
+   * @param jobId The ID of the job to stop
+   * @returns A promise that resolves when the stop signal is created
+   */
+  createStopSignal: (jobId: string) => Promise<void>;
 }
 
 interface Window {

@@ -21,6 +21,15 @@ contextBridge.exposeInMainWorld('backendAPI', {
    */
   executeFlowFile: async (flowFilePath, input) => {
     return ipcRenderer.invoke('execute-flow-file', flowFilePath, input);
+  },
+  
+  /**
+   * Create a stop signal file for a running job
+   * @param {string} jobId - The ID of the job to stop
+   * @returns {Promise<void>} - A promise that resolves when the stop signal is created
+   */
+  createStopSignal: async (jobId) => {
+    return ipcRenderer.invoke('create-stop-signal', jobId);
   }
 });
 

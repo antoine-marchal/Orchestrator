@@ -11,6 +11,8 @@ export interface NodeData {
   executionTime?: number; // Execution time in milliseconds
   isRelativePath?: boolean; // Indicates if the path stored in code is relative
   isStarterNode?: boolean; // Indicates if this node is the starter node for flow execution
+  dontWaitForOutput?: boolean; // Indicates if execution should continue without waiting for this node's output
+  jobId?: string; // The ID of the job when the node is executing
 }
 
 export interface ConnectionItemProps {

@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "id": "node-1750459382116",
+      "type": "custom",
+      "position": {
+        "x": 375,
+        "y": 360
+      },
+      "data": {
+        "label": "Groovy",
+        "type": "groovy",
+        "language": "groovy",
+        "code": "println \"beginning processing with $input\"\ndef f = new File('test')\ndef i = 0 \nwhile(true){\n  sleep(1000)\n  f.text=i++\n}\noutput= input",
+        "dontWaitForOutput": true,
+        "output": {
+          "dontWaitForOutput": true
+        },
+        "isStarterNode": false
+      },
+      "draggable": true,
+      "width": 421,
+      "height": 246,
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "node-1750459431669",
+      "type": "custom",
+      "position": {
+        "x": 1020,
+        "y": 435
+      },
+      "data": {
+        "label": "Groovy 1",
+        "type": "groovy",
+        "language": "groovy",
+        "code": "println \"beginning processing with $input\"\noutput= new File('test').text",
+        "executionTime": 1255,
+        "output": "32",
+        "isStarterNode": false
+      },
+      "draggable": true,
+      "width": 421,
+      "height": 230,
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "type": "step",
+      "style": {
+        "stroke": "#64748b",
+        "strokeWidth": 2
+      },
+      "source": "node-1750459382116",
+      "sourceHandle": null,
+      "target": "node-1750459431669",
+      "targetHandle": null,
+      "id": "e1750459446214"
+    }
+  ]
+}

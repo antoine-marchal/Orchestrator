@@ -129,6 +129,7 @@ interface FlowState {
   historyIndex: number;
   maxHistorySize: number;
   starterNodeId: string | null;
+  stoppingNodes: Set<string>; // Track nodes that are being stopped
   setFlowPath: (path: string | null) => void;
   setNodeExecutionTimeout: (timeout: number) => void;
   convertToRelativePath: (absolutePath: string, basePath: string) => string;
@@ -145,12 +146,14 @@ interface FlowState {
   addNode: (node: Node) => void;
   removeNode: (nodeId: string) => void;
   updateNodeData: (nodeId: string, data: any, addHistory?: boolean) => void;
+  toggleDontWaitForOutput: (nodeId: string) => void; // Add method to toggle dontWaitForOutput
   toggleConsole: () => void;
   setFullscreen: () => void;
   addConsoleMessage: (message: ConsoleMessage) => void;
   clearConsole: () => void;
   clearFlow: () => void;
-  executeNode: (nodeId: string) => void;
+  executeNode: (nodeId: string, isStopAction?: boolean) => void;
+  stopNodeExecution: (nodeId: string) => void;
   executeFlow: () => void;
   executeFlowFile: (flowFilePath: string, input?: any) => Promise<any>;
   saveFlow: () => void;
@@ -219,6 +222,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   maxHistorySize: 10,
   starterNodeId: null,
   outputClearCounter: 0,
+  stoppingNodes: new Set<string>(),
   setFlowPath: (path: string | null) => set({ flowPath: path }),
   setNodeExecutionTimeout: (timeout: number) => set({ nodeExecutionTimeout: timeout }),
   // Optimized version of setOutputZoneActive to reduce state updates
@@ -266,6 +270,22 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           }
         }))
       }));
+    }
+  },
+
+  // Method to toggle the dontWaitForOutput property
+  toggleDontWaitForOutput: (nodeId: string) => {
+    const { nodes } = get();
+    const node = nodes.find(n => n.id === nodeId);
+    
+    if (node) {
+      // Add current state to history before making changes
+      get().addToHistory();
+      
+      // Toggle the dontWaitForOutput property
+      get().updateNodeData(nodeId, {
+        dontWaitForOutput: !node.data.dontWaitForOutput
+      }, false); // Don't add to history again since we already did
     }
   },
 
@@ -641,10 +661,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (state.flowPath) {
       
       nodesToSave = nodesToSave.map((node: Node) => {
+        // Preserve the dontWaitForOutput property when saving
+        if (node.data.dontWaitForOutput) {
+          node.data.dontWaitForOutput = true;
+        }
+        
         if (node.data.type === 'flow' && node.data.code) {
           // Check if the path is absolute (regardless of isRelativePath flag)
           const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
-          
           
           // Convert absolute paths to relative paths
           if (isAbsolutePath) {
@@ -737,12 +761,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         try {
           const flow = JSON.parse(result.data);
           
-          
           // Store the master flow path for reference
           const masterFlowPath = result.filePath;
           
           // Convert relative paths to absolute paths for flow nodes
           const nodes = flow.nodes.map((node: Node) => {
+            // Ensure dontWaitForOutput property is preserved when loading
+            if (node.data.dontWaitForOutput === true) {
+              node.data.dontWaitForOutput = true;
+            }
+            
             if (node.data.type === 'flow' && node.data.code) {
               // Process both relative and absolute paths
               const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
@@ -796,6 +824,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
   executeFlowFile: async (flowFilePath: string, input?: any) => {
     try {
+      // Check if there's already a flow running with this path
+      const state = get();
+      const isFlowRunning = Object.entries(state.nodeLoading).some(([nodeId, isLoading]) => {
+        if (!isLoading) return false;
+        const node = state.nodes.find(n => n.id === nodeId);
+        return node?.data.type === 'flow' &&
+               (node?.data.code === flowFilePath || node?.data.absolutePath === flowFilePath);
+      });
+      
+      if (isFlowRunning) {
+        throw new Error('This flow is already running. Please wait for it to complete before executing again.');
+      }
+      
       if (window.backendAPI?.executeFlowFile) {
         return await window.backendAPI.executeFlowFile(flowFilePath, input);
       } else {
@@ -811,21 +852,55 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const state = get();
     const visited = new Set<string>();
     const executed = new Set<string>();
-    
+    const executing = new Set<string>();
     
     const executeNodeInFlow = async (nodeId: string) => {
       if (visited.has(nodeId)) return;
       visited.add(nodeId);
       
- 
-
+      // Get the node to check if it has dontWaitForOutput set
+      const node = state.nodes.find(n => n.id === nodeId);
+      if (!node) return;
+      
+      // Check if the node is already executing (from nodeLoading state)
+      if (state.nodeLoading[nodeId]) {
+        // Node is already running, log a message and skip execution
+        state.addConsoleMessage({
+          nodeId,
+          type: 'error',
+          message: `Skipping node execution: already running`,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+      
       // Execute all input nodes first, but only if they're valid to execute
       const inputEdges = state.edges.filter(e => e.target === nodeId);
-      for (const edge of inputEdges) {
-        await executeNodeInFlow(edge.source);
-      }
+      
+      // For nodes that don't wait for output, we start their execution but don't await it
+      const inputPromises = inputEdges.map(async (edge) => {
+        const sourceNode = state.nodes.find(n => n.id === edge.source);
+        
+        // If the source node has dontWaitForOutput set to true, we don't wait for it
+        if (sourceNode?.data.dontWaitForOutput) {
+          // If it's not already executing or executed, start execution but don't await
+          if (!executing.has(edge.source) && !executed.has(edge.source) && !state.nodeLoading[edge.source]) {
+            executing.add(edge.source);
+            // Start execution without awaiting
+            executeNodeInFlow(edge.source).then(() => {
+              executing.delete(edge.source);
+            });
+          }
+        } else {
+          // For normal nodes, wait for them to complete
+          await executeNodeInFlow(edge.source);
+        }
+      });
+      
+      // Wait for all input nodes that require waiting
+      await Promise.all(inputPromises);
 
-      if (!executed.has(nodeId)) {
+      if (!executed.has(nodeId) && !state.nodeLoading[nodeId]) {
         await state.executeNode(nodeId);
         executed.add(nodeId);
       }
@@ -836,12 +911,15 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       !state.edges.some(edge => edge.source === node.id)
     );
     
-
+    // If there's a starter node, use that as the entry point
+    if (state.starterNodeId) {
+      await executeNodeInFlow(state.starterNodeId);
+    } else {
       // No starter node, execute the flow normally starting from each end node
       for (const node of endNodes) {
         await executeNodeInFlow(node.id);
       }
-    
+    }
   },
   moveConnection: (nodeId, type, edgeId, direction) =>
     set((state) => {
@@ -869,8 +947,106 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }),
 
 
-    executeNode: async (nodeId: string) => {
+    // Add a dedicated method to stop node execution
+    stopNodeExecution: (nodeId: string) => {
       const state = get();
+      
+      // If the node is not running, there's nothing to stop
+      if (!state.nodeLoading[nodeId]) {
+        return;
+      }
+      
+      // Mark this node as being stopped
+      state.stoppingNodes.add(nodeId);
+      
+      // Log that we're stopping the node
+      state.addConsoleMessage({
+        nodeId,
+        type: 'log',
+        message: `Stopping node execution...`,
+        timestamp: Date.now(),
+      });
+      
+      // Find the job ID for this node
+      const node = state.nodes.find(n => n.id === nodeId);
+      if (node && node.data && node.data.jobId) {
+        // Create a stop signal file for the backend
+        if (window.backendAPI?.createStopSignal) {
+          window.backendAPI.createStopSignal(node.data.jobId)
+            .then(() => {
+              console.log(`Stop signal created for job ${node.data.jobId}`);
+              
+              // For nodes with dontWaitForOutput, we need to manually set the loading state to false
+              // since the IPC handler won't do it for us (it returned immediately)
+              if (node.data.dontWaitForOutput) {
+                // Add a small delay to allow the backend to process the stop signal
+                setTimeout(() => {
+                  state.setNodeLoading(nodeId, false);
+                  state.stoppingNodes.delete(nodeId);
+                  
+                  // Clear the job ID
+                  state.updateNodeData(nodeId, { jobId: undefined }, false);
+                  
+                  // Log that execution was stopped
+                  state.addConsoleMessage({
+                    nodeId,
+                    type: 'log',
+                    message: `Node execution stopped`,
+                    timestamp: Date.now(),
+                  });
+                }, 500);
+              }
+            })
+            .catch((err: Error) => {
+              console.error(`Error creating stop signal: ${err.message}`);
+            });
+        }
+      }
+      
+      // For regular nodes (not dontWaitForOutput), call executeNode with the stop action flag
+      // For dontWaitForOutput nodes, we handle the state update in the createStopSignal callback above
+      if (!node?.data.dontWaitForOutput) {
+        state.executeNode(nodeId, true);
+      }
+    },
+
+    executeNode: async (nodeId: string, isStopAction = false) => {
+      const state = get();
+      
+      // Check if the node is already executing
+      if (state.nodeLoading[nodeId] && !isStopAction) {
+        // Node is already running, show a message in the console
+        state.addConsoleMessage({
+          nodeId,
+          type: 'error',
+          message: `Cannot execute node: already running`,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+      
+      // If this is a stop action for a running node, handle it differently
+      if (isStopAction && state.nodeLoading[nodeId]) {
+        // Mark the node as no longer loading
+        state.setNodeLoading(nodeId, false);
+        
+        // Remove from stopping nodes set
+        state.stoppingNodes.delete(nodeId);
+        
+        // Clear the job ID
+        state.updateNodeData(nodeId, { jobId: undefined }, false);
+        
+        // Log that execution was stopped
+        state.addConsoleMessage({
+          nodeId,
+          type: 'log',
+          message: `Node execution stopped`,
+          timestamp: Date.now(),
+        });
+        
+        return;
+      }
+      
       state.setNodeLoading(nodeId, true);
       const node = state.nodes.find((n) => n.id === nodeId);
       if (!node) return;
@@ -887,6 +1063,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         });
       };
       
+      // If this node has dontWaitForOutput set, log it
+      if (node.data.dontWaitForOutput) {
+        addLog('log', 'Node is set to not wait for output - execution will continue in parallel');
+        addLog('log', 'This node will run indefinitely until manually stopped');
+        // For nodes with dontWaitForOutput, we need to ensure the node stays in loading state
+        // even after the IPC handler returns immediately
+      }
       
       try {
         let result: any, log: any, error: any;
@@ -1031,6 +1214,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               // Start execution time tracking
               const startTime = Date.now();
               
+              // Generate a job ID for this execution
+              const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+              
+              // Store the job ID in the node data for potential termination
+              state.updateNodeData(nodeId, { jobId }, false);
+              
               let code = node.data.code?.trim() || '';
               let fn;
               if (/^function\s*\w*\s*\(/.test(code)) {
@@ -1063,38 +1252,86 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               // Start execution time tracking
               const startTime = Date.now();
               
+              const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
               const payload = {
-                id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+                id: jobId,
                 code: node.data.code,
                 type: node.data.type,
                 input: processedInputs,
-                timeout: get().nodeExecutionTimeout
+                timeout: get().nodeExecutionTimeout,
+                dontWaitForOutput: node.data.dontWaitForOutput
               };
+              
+              // Store the job ID in the node data for potential termination
+              state.updateNodeData(nodeId, { jobId }, false);
+              
+              // For nodes with dontWaitForOutput, we need to ensure the jobId is preserved
+              // so that the node can be stopped later
               // CALL THE EXPOSED API FROM PRELOAD
               const resultData = await (window as any).backendAPI.executeNodeJob(payload);
               result = resultData.output !== '[]' ? resultData.output : null;
               log = resultData.log;
               error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
               
+              // For nodes with dontWaitForOutput, the resultData will have dontWaitForOutput=true
+              // We need to preserve this information to maintain the loading state
+              if (resultData.dontWaitForOutput) {
+                result = { ...result, dontWaitForOutput: true };
+              }
+              
               // Calculate execution time
               const executionTime = resultData.executionTime || (Date.now() - startTime);
               
               // Store execution time in node data
               node.data.executionTime = executionTime;
+              
+              // For nodes with dontWaitForOutput, we need to keep the loading state active
+              // since the process is still running in the background
+              if (node.data.dontWaitForOutput && resultData.dontWaitForOutput) {
+                // Keep the node in loading state
+                // We'll only update the output, but keep the loading state and jobId
+                state.updateNodeData(nodeId, {
+                  output: result,
+                  // Keep jobId to allow stopping the node later
+                }, false);
+                
+                // Return early to prevent setting nodeLoading to false
+                return;
+              }
             }
           }
         }
-        state.setNodeLoading(nodeId, false);
+        
+        // Only set loading to false if this is not a dontWaitForOutput node
+        // or if it's a dontWaitForOutput node that has actually completed
+        if (!(node.data.dontWaitForOutput && result?.dontWaitForOutput)) {
+          state.setNodeLoading(nodeId, false);
+        }
         if (log) addLog('log', prettyFormat(log));
         if (result !== undefined && result !== null && typeof result === 'object' && 'output' in result) addLog('output', prettyFormat(result.output));
         else if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
         if (error) addLog('error', prettyFormat(error));
         
-        // Update node data with result
-        state.updateNodeData(nodeId, { output: result });
+        // For nodes with dontWaitForOutput, we need to keep the jobId
+        // so that the node can be stopped later
+        if (node.data.dontWaitForOutput && result?.dontWaitForOutput) {
+          // Only update the output, keep the jobId
+          state.updateNodeData(nodeId, {
+            output: result
+          });
+        } else {
+          // For regular nodes, update node data with result and clear jobId
+          state.updateNodeData(nodeId, {
+            output: result,
+            jobId: undefined // Clear the job ID when execution is complete
+          });
+        }
       } catch (error: any) {
         addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
         state.setNodeLoading(nodeId, false);
+        
+        // Clear the job ID when an error occurs
+        state.updateNodeData(nodeId, { jobId: undefined }, false);
       }
     },
     

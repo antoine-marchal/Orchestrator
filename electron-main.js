@@ -457,18 +457,77 @@ app.whenReady().then(() => {
 
     await fsp.writeFile(jobFile, JSON.stringify(payload, null, 2), 'utf8');
 
-    // Wait for result
-    let waited = 0, timeout = payload.timeout || 30000;
-    while (!fs.existsSync(resultFile)) {
-      if (waited > timeout) throw new Error("Timeout waiting for backend result.");
-      await new Promise(res => setTimeout(res, 100));
-      waited += 100;
+    // For nodes with dontWaitForOutput enabled, don't wait for the result
+    if (payload.dontWaitForOutput) {
+      console.log(`Node ${payload.id} has dontWaitForOutput enabled, not waiting for result`);
+      
+      // Return immediately but include information that this is a non-blocking node
+      // This will allow the UI to maintain the loading state
+      return {
+        id: payload.id,
+        output: null,
+        log: "Node execution started in non-blocking mode",
+        error: null,
+        dontWaitForOutput: true,
+        // Include the jobId so the UI can use it to stop the node if needed
+        jobId: payload.id
+      };
     }
 
-    const resultData = JSON.parse(await fsp.readFile(resultFile, 'utf8'));
-    await new Promise(res => setTimeout(res, 250));
-    await fsp.unlink(resultFile);
-    return resultData;
+    // Wait for result for normal nodes
+    let waited = 0, timeout = payload.timeout || 30000;
+    try {
+      while (!fs.existsSync(resultFile)) {
+        if (waited > timeout) {
+          console.log(`Timeout reached for job ${payload.id} after ${timeout}ms`);
+          
+          // Create a stop signal file to terminate the process
+          const stopFilePath = path.join(inbox, `${payload.id}.stop`);
+          try {
+            fs.writeFileSync(stopFilePath, 'timeout', 'utf8');
+            console.log(`Created stop signal file for timed out job ${payload.id}`);
+            
+            // Also create a result file to unblock any waiting processes
+            const timeoutResult = {
+              id: payload.id,
+              output: null,
+              log: "Process terminated due to timeout",
+              error: "Error: Timeout waiting for backend result",
+              timedOut: true
+            };
+            fs.writeFileSync(resultFile, JSON.stringify(timeoutResult, null, 2), 'utf8');
+            console.log(`Created timeout result file for job ${payload.id}`);
+            
+            // For normal nodes (not dontWaitForOutput), we need to terminate the process
+            // This is done by creating the stop signal file above
+            
+            // Return the timeout result instead of throwing an error
+            return timeoutResult;
+          } catch (stopErr) {
+            console.error(`Error handling timeout for job ${payload.id}: ${stopErr.message}`);
+            throw new Error("Timeout waiting for backend result.");
+          }
+        }
+        await new Promise(res => setTimeout(res, 100));
+        waited += 100;
+      }
+
+      const resultData = JSON.parse(await fsp.readFile(resultFile, 'utf8'));
+      await new Promise(res => setTimeout(res, 250));
+      await fsp.unlink(resultFile);
+      return resultData;
+    } catch (error) {
+      console.error(`Error in execute-node-job for ${payload.id}: ${error.message}`);
+      
+      // Return a structured error response
+      return {
+        id: payload.id,
+        output: null,
+        log: null,
+        error: `Error: ${error.message}`,
+        timedOut: waited > timeout
+      };
+    }
   });
 
   ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
@@ -531,6 +590,42 @@ app.whenReady().then(() => {
   
   ipcMain.on('save-flow-to-path', (event, filePath, data) => {
     require('fs').writeFileSync(filePath, data, 'utf8');
+  });
+  
+  ipcMain.handle('create-stop-signal', async (event, jobId, reason = 'user_request') => {
+    try {
+      // Get the backend directory
+      const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+      const backendDir = isDev
+        ? path.join(__dirname, 'backend')
+        : path.join(process.resourcesPath, 'backend');
+      
+      // Create the stop signal file in the inbox directory
+      const stopFilePath = path.join(backendDir, 'inbox', `${jobId}.stop`);
+      fs.writeFileSync(stopFilePath, reason, 'utf8');
+      console.log(`Created stop signal file for job ${jobId} at ${stopFilePath} (reason: ${reason})`);
+      
+      // For timeout cases, also create a result file to unblock any waiting processes
+      if (reason === 'timeout') {
+        const resultFilePath = path.join(backendDir, 'outbox', `${jobId}.result.json`);
+        if (!fs.existsSync(resultFilePath)) {
+          const timeoutResult = {
+            id: jobId,
+            output: null,
+            log: "Process terminated due to timeout",
+            error: "Error: Timeout waiting for backend result",
+            timedOut: true
+          };
+          fs.writeFileSync(resultFilePath, JSON.stringify(timeoutResult, null, 2), 'utf8');
+          console.log(`Created timeout result file for job ${jobId}`);
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error(`Error creating stop signal file: ${error.message}`);
+      throw error;
+    }
   });
 });
 

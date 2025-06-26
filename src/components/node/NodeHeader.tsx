@@ -12,7 +12,9 @@ import {
   Terminal,
   TerminalSquare,
   MessageSquare,
-  Flag
+  Flag,
+  AlarmClockOff,
+  Square
 } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
@@ -34,7 +36,13 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
   onExecute,
   onDelete,
 }) => {
-  const { openEditorModal, updateNodeDraggable, updatePanOnDrag, setStarterNode } = useFlowStore();
+  const { openEditorModal, updateNodeDraggable, updatePanOnDrag, setStarterNode, toggleDontWaitForOutput, nodeLoading, stopNodeExecution } = useFlowStore();
+  
+  // Check if the node is currently loading/executing
+  const isNodeExecuting = nodeLoading?.[nodeId] || false;
+  
+  // Check if this node has dontWaitForOutput enabled
+  const hasDontWaitForOutput = data.dontWaitForOutput;
   const openFlowNodeInNewWindow = async() => {
       if (data.code) {
         // If the flow node already has a file path, open it in a new window
@@ -131,8 +139,9 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
             </button>
           )}
           <button
-            className="p-1 hover:bg-gray-700 rounded"
+            className={`p-1 hover:bg-gray-700 rounded ${isNodeExecuting ? 'cursor-not-allowed opacity-50' : ''}`}
             onClick={onExecute}
+            title={isNodeExecuting ? "Node is already running" : "Execute node"}
           >
             <Play className="w-4 h-4 text-green-500" />
           </button>
@@ -143,12 +152,38 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           >
             <Flag className={`w-4 h-4 ${data.isStarterNode ? 'text-yellow-500' : 'text-gray-500'}`} />
           </button>
+          {/* Stop button (shown when node is executing) */}
+          {isNodeExecuting ? (
+            <button
+              className="p-1 hover:bg-gray-700 rounded"
+              onClick={() => stopNodeExecution(nodeId)}
+              title="Stop execution"
+            >
+              <Square className="w-4 h-4 text-red-500" />
+            </button>
+          ) : (
+            <button
+              className={`p-1 hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-700' : ''}`}
+              onClick={() => toggleDontWaitForOutput(nodeId)}
+              title={hasDontWaitForOutput ? "Wait for output (currently set to don't wait)" : "Don't wait for output"}
+            >
+              <AlarmClockOff className={`w-4 h-4 ${hasDontWaitForOutput ? 'text-yellow-500' : 'text-gray-500'}`} />
+            </button>
+          )}
+          {isNodeExecuting ? (
           <button
+            className="p-1 hover:bg-gray-700 rounded"
+          >
+            <Trash2 className="w-4 h-4 text-red-500" />
+          </button>
+           ) : (
+            <button
             className="p-1 hover:bg-gray-700 rounded"
             onClick={onDelete}
           >
             <Trash2 className="w-4 h-4 text-red-500" />
           </button>
+          )}
         </div>
       </div>
       {/* Value input below title for constants */}
