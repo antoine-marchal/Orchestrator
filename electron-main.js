@@ -467,7 +467,7 @@ app.whenReady().then(() => {
       // This will allow the UI to maintain the loading state
       return {
         id: payload.id,
-        output: null,
+        output: payload.input,
         log: "Node execution started in non-blocking mode",
         error: null,
         dontWaitForOutput: true,

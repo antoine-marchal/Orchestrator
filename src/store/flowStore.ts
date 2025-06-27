@@ -1275,9 +1275,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               
               // For nodes with dontWaitForOutput, the resultData will have dontWaitForOutput=true
               // We need to preserve this information to maintain the loading state
-              if (resultData.dontWaitForOutput) {
-                result = { ...result, dontWaitForOutput: true };
-              }
+              //if (resultData.dontWaitForOutput) {
+              //  result = { ...result, dontWaitForOutput: true };
+              //}
               
               // Calculate execution time
               const executionTime = resultData.executionTime || (Date.now() - startTime);
