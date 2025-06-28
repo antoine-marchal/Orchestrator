@@ -127,8 +127,8 @@ function createWindow(flowFilePath) {
   } else {
     win.loadFile(path.join('dist/index.html'));
   }
-  win.webContents.setFrameRate(30);
-  win.webContents.setBackgroundThrottling(true);
+  win.webContents.setFrameRate(60);
+  win.webContents.setBackgroundThrottling(false);
   win.webContents.executeJavaScript(`
     console.log('🧪 PERF BENCHMARK START');
   
@@ -329,11 +329,7 @@ app.whenReady().then(() => {
   if (isSilentMode && silentModeFlowPath) {
     console.log(`Running in silent mode with flow file: ${silentModeFlowPath}`);
     
-    // Start the backend
-    startBackend(true);
-    
-    // Wait for backend to initialize
-    setTimeout(async () => {
+    async function runInSilentMode(){
       try {
         // Get the backend directory
         const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
@@ -346,20 +342,20 @@ app.whenReady().then(() => {
         // Execute the flow file
         await executeFlowFile(silentModeFlowPath);
         
-        // Stop the backend process before exiting
-        stopBackend();
+  
         
         // Exit the application after execution
         console.log('Flow execution completed. Exiting...');
         app.exit(0);
       } catch (error) {
         console.error(`Error executing flow in silent mode: ${error.message}`);
-        // Make sure to stop the backend even if there's an error
-        stopBackend();
+
         app.exit(1);
       }
-    }, 1000); // Give the backend a second to start up
-    
+    }
+    runInSilentMode().catch(err => {
+      console.error('Error:', err);
+    });
     return; // Skip UI initialization in silent mode
   }
   let splashCreatedAt = Date.now() ;
@@ -381,7 +377,7 @@ app.whenReady().then(() => {
   // When main window is ready, close splash
   if (splashWindow) {
     const MIN_SPLASH_DURATION = 5000; // 3s en ms
-    mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.once('ready-to-show', () => {
       console.log('Main window loaded, closing splash');
       
       // Find the first argument that looks like an or/json file
@@ -420,10 +416,10 @@ app.whenReady().then(() => {
         }
         
         try {
+          mainWindow.setAlwaysOnTop(true);
           mainWindow.show();
-          //console.log('Main window shown successfully');
-          // Ensure the main window is focused
           mainWindow.focus();
+          mainWindow.setAlwaysOnTop(false); // Reset
         } catch (error) {
           console.error('Error showing main window:', error);
         }

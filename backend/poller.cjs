@@ -438,7 +438,7 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
  * @param {Object} nodeResults - Map to store node results
  * @returns {Promise<any>} - The result of the node execution
  */
-async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 30000) {
+async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 60000*60*8) {
   // Get the path to the nested flow file
   let nestedFlowPath = node.data.code || '';
   
