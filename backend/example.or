@@ -4,8 +4,8 @@
       "id": "node-1749383942800",
       "type": "custom",
       "position": {
-        "x": 1186,
-        "y": 100
+        "x": 1215,
+        "y": 120
       },
       "data": {
         "label": "Backend JS",
@@ -14,7 +14,7 @@
         "code": "import { chromium } from 'playwright';\r\n\r\n// Port provided by input\r\nconst port = typeof input === 'number' ? input : Number(input);\r\nconst wsVersionUrl = `http://localhost:${port}/json/version`;\r\n\r\nconst res = await fetch(wsVersionUrl);\r\nconst { webSocketDebuggerUrl } = await res.json();\r\n\r\nconst browser = await chromium.connectOverCDP(webSocketDebuggerUrl);\r\nconst context = browser.contexts()[0] || await browser.newContext();\r\nconst page = await context.newPage();\r\n\r\nawait page.goto('https://example.com?rand=' + Math.random());\r\n\r\nconst result = await page.evaluate(async () => {\r\n  const response = await fetch('https://httpbin.org/post', {\r\n    method: 'POST',\r\n    headers: { 'Content-Type': 'application/json' },\r\n    body: JSON.stringify({ foo: 'bar', time: Date.now() })\r\n  });\r\n  return await response.json();\r\n});\r\n\r\noutput = result;\r\nawait browser.close();\r\n",
         "output": {
           "args": {},
-          "data": "{\"foo\":\"bar\",\"time\":1749385157214}",
+          "data": "{\"foo\":\"bar\",\"time\":1751117702778}",
           "files": {},
           "form": {},
           "headers": {
@@ -27,22 +27,23 @@
             "Origin": "https://example.com",
             "Priority": "u=1, i",
             "Referer": "https://example.com/",
-            "Sec-Ch-Ua": "\"Microsoft Edge\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "Sec-Ch-Ua": "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Microsoft Edge\";v=\"138\"",
             "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": "\"Windows\"",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "cross-site",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
-            "X-Amzn-Trace-Id": "Root=1-68457fc4-5d0e98da121bd87e77b2085d"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
+            "X-Amzn-Trace-Id": "Root=1-685fef75-1b7617811ea8854762c6083e"
           },
           "json": {
             "foo": "bar",
-            "time": 1749385157214
+            "time": 1751117702778
           },
           "origin": "88.182.6.36",
           "url": "https://httpbin.org/post"
-        }
+        },
+        "isStarterNode": false
       },
       "draggable": true,
       "width": 548,
@@ -50,8 +51,8 @@
       "selected": false,
       "dragging": false,
       "positionAbsolute": {
-        "x": 1035,
-        "y": 0
+        "x": 1215,
+        "y": 120
       },
       "style": {
         "width": 548,
@@ -70,10 +71,11 @@
         "label": "EdgePort",
         "type": "constant",
         "value": "9222",
-        "output": "9222"
+        "output": "9222",
+        "isStarterNode": false
       },
       "draggable": true,
-      "width": 325,
+      "width": 389,
       "height": 173,
       "selected": false,
       "positionAbsolute": {
@@ -86,20 +88,22 @@
       "id": "node-1749384717975",
       "type": "custom",
       "position": {
-        "x": 679,
-        "y": 186
+        "x": 639,
+        "y": 204
       },
       "data": {
         "label": "Launching Edge",
         "type": "powershell",
         "language": "powershell",
         "code": "# Kill all running Edge processes\r\nGet-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force\r\n\r\n# Launch Edge with remote debugging port from $env:INPUT\r\nStart-Process \"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" -ArgumentList \"--remote-debugging-port=$env:INPUT\"\r\n#Start-Process \"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" -ArgumentList \"--remote-debugging-port=$env:INPUT\"#, \"--headless=new\"\r\n\r\n# Write the port value to the output file\r\nSet-Content -Path $env:OUTPUT -Value $env:INPUT\r\n",
-        "output": "9222\r\n"
+        "output": "9222\r\n",
+        "dontWaitForOutput": true,
+        "isStarterNode": false
       },
       "draggable": true,
-      "width": 357,
+      "width": 421,
       "height": 230,
-      "selected": false,
+      "selected": true,
       "positionAbsolute": {
         "x": 525,
         "y": 30
@@ -110,19 +114,52 @@
       "id": "node-1749385112247",
       "type": "custom",
       "position": {
-        "x": 1884,
-        "y": 186
+        "x": 1908,
+        "y": 100
       },
       "data": {
         "label": "Killing Edge Sessions",
         "type": "powershell",
         "language": "powershell",
         "code": "# Kill all running Edge processes\r\nGet-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force\r\n\r\necho 'Kill all running Edge processes'",
-        "output": "Kill all running Edge processes\r\n"
+        "output": {
+          "args": {},
+          "data": "{\"foo\":\"bar\",\"time\":1751117702778}",
+          "files": {},
+          "form": {},
+          "headers": {
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Length": "34",
+            "Content-Type": "application/json",
+            "Host": "httpbin.org",
+            "Origin": "https://example.com",
+            "Priority": "u=1, i",
+            "Referer": "https://example.com/",
+            "Sec-Ch-Ua": "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Microsoft Edge\";v=\"138\"",
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": "\"Windows\"",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "cross-site",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
+            "X-Amzn-Trace-Id": "Root=1-685fef75-1b7617811ea8854762c6083e"
+          },
+          "json": {
+            "foo": "bar",
+            "time": 1751117702778
+          },
+          "origin": "88.182.6.36",
+          "url": "https://httpbin.org/post"
+        },
+        "dontWaitForOutput": true,
+        "jobId": "job-1751117704264-j2xcl0dxm",
+        "isStarterNode": false
       },
       "draggable": true,
-      "width": 357,
-      "height": 230,
+      "width": 1028,
+      "height": 438,
       "selected": false,
       "dragging": false,
       "positionAbsolute": {
@@ -134,23 +171,24 @@
       "id": "node-1749595176678",
       "type": "custom",
       "position": {
-        "x": 2415,
+        "x": 3090,
         "y": 210
       },
       "data": {
         "label": "Groovy",
         "type": "groovy",
         "language": "groovy",
-        "code": "println \"beginning processing with $input\"\noutput= input",
-        "output": "[[args:[:], data:{\"foo\":\"bar\",\"time\":1749385157214}, files:[:], form:[:], headers:[Accept:*/*, Accept-Encoding:gzip, deflate, br, zstd, Accept-Language:en-US,en;q=0.9, Content-Length:34, Content-Type:application/json, Host:httpbin.org, Origin:https://example.com, Priority:u=1, i, Referer:https://example.com/, Sec-Ch-Ua:\"Microsoft Edge\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\", Sec-Ch-Ua-Mobile:?0, Sec-Ch-Ua-Platform:\"Windows\", Sec-Fetch-Dest:empty, Sec-Fetch-Mode:cors, Sec-Fetch-Site:cross-site, User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0, X-Amzn-Trace-Id:Root=1-68457fc4-5d0e98da121bd87e77b2085d], json:[foo:bar, time:1749385157214], origin:88.182.6.36, url:https://httpbin.org/post], Kill all running Edge processes\r\n]"
+        "code": "println \"beginning processing with $input\"\ndef d = input.json.time\n\noutput= new Date(d)",
+        "output": "2025-06-28T13:35:02+0000",
+        "isStarterNode": false
       },
       "draggable": true,
-      "width": 1384,
-      "height": 350,
-      "selected": true,
+      "width": 421,
+      "height": 230,
+      "selected": false,
       "dragging": false,
       "positionAbsolute": {
-        "x": 2415,
+        "x": 3090,
         "y": 210
       }
     }
@@ -196,21 +234,7 @@
       "id": "e1749385152847"
     },
     {
-      "type": "smoothstep",
-      "animated": true,
-      "style": {
-        "stroke": "#64748b",
-        "strokeWidth": 2
-      },
-      "source": "node-1749383942800",
-      "sourceHandle": null,
-      "target": "node-1749595176678",
-      "targetHandle": null,
-      "id": "e1749595180645"
-    },
-    {
-      "type": "smoothstep",
-      "animated": true,
+      "type": "step",
       "style": {
         "stroke": "#64748b",
         "strokeWidth": 2
@@ -219,7 +243,7 @@
       "sourceHandle": null,
       "target": "node-1749595176678",
       "targetHandle": null,
-      "id": "e1749595182333"
+      "id": "e1751110804090"
     }
   ]
 }
