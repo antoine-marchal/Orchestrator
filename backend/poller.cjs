@@ -195,7 +195,7 @@ function parseFlowFile(flowFilePath) {
  * @param {boolean} [isTopLevel=true] - Whether this is a top-level flow execution
  * @returns {Promise<any>} - The result of the flow execution
  */
-async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true, basePath = null, timeout = 30000) {
+async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true, basePath = null, timeout = 60000*60*8) {
   return new Promise((resolve, reject) => {
     try {
       // Check for circular references
@@ -302,20 +302,10 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
           
           // Check if this dependency has dontWaitForOutput enabled
           const depNode = nodeMap[depId];
-          if (depNode && depNode.data && depNode.data.dontWaitForOutput) {
-            // Start execution but don't wait for it to complete
-            nonWaitingDeps.add(depId);
-            // Execute in the background without awaiting
-            executeNodeInFlow(depId).then(result => {
-              // Store the result when it's available, but don't block execution
-              nodeResults[depId] = result;
-            }).catch(err => {
-              console.error(`Error in non-blocking node ${depId}: ${err.message}`);
-            });
-          } else {
+
             // For regular dependencies, wait for them to complete
             await executeNodeInFlow(depId);
-          }
+          
         }
         
         const node = nodeMap[nodeId];
@@ -364,14 +354,14 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
         if (node.data && node.data.dontWaitForOutput) {
           // Start execution but don't wait for it to complete
           console.log(`Node ${node.data.label || nodeId} (${node.data.type}): executing in non-blocking mode`);
-          console.log(`Non-blocking node will run indefinitely until manually stopped`);
+          console.log(`1 Non-blocking node will run indefinitely until manually stopped`);
           
           // Execute in the background without awaiting and without timeout
-          executeRegularNode(node, nodeId, nodeInput, nodeResults, true)
+          executeRegularNode(node, nodeId, nodeInput, nodeResults, false,timeout)
             .then(result => {
               // Store the result when it's available, but don't block execution
-              nodeResults[nodeId] = result.output;
-              console.log(`Non-blocking node ${node.data.label || nodeId} completed with result: ${JSON.stringify(result.output)}`);
+              nodeResults[nodeId] = nodeInput;
+              console.log(`Non-blocking node ${node.data.label || nodeId} completed with result: ${JSON.stringify(nodeInput)}`);
             })
             .catch(err => {
               console.error(`Error in non-blocking node ${nodeId}: ${err.message}`);
@@ -381,7 +371,7 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
           return { output: null, executionTime: 0, nonBlocking: true };
         } else {
           // For regular nodes, wait for completion
-          return await executeRegularNode(node, nodeId, nodeInput, nodeResults);
+          return await executeRegularNode(node, nodeId, nodeInput, nodeResults,true,timeout);
         }
       };
       
@@ -534,7 +524,7 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
  * @param {boolean} [waitForResult=true] - Whether to wait for the result before resolving
  * @returns {Promise<any>} - The result of the node execution
  */
-async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 30000) {
+async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 60000*60*8) {
   // Create a temporary job file
   const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const nodeJob = {
@@ -545,7 +535,8 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     dontWaitForOutput: node.data.dontWaitForOutput,
     timeout: timeout
   };
-  
+  console.log(`Executing node ${node.data.label || nodeId} (${node.data.type}) with input: ${JSON.stringify(nodeInput)}`);
+
   // Start execution time tracking
   const startTime = Date.now();
   
@@ -557,43 +548,24 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
   if (node.data.dontWaitForOutput && !waitForResult) {
     console.log(`Started non-blocking execution for node ${node.data.label || nodeId} (${node.data.type})`);
     
-    // Start the result checking process in the background
-    const checkResultInBackground = () => {
-      const resultPath = path.join(OUTBOX, `${nodeJobId}.result.json`);
-      if (fs.existsSync(resultPath)) {
-        try {
-          const resultContent = fs.readFileSync(resultPath, 'utf8');
-          const result = JSON.parse(resultContent);
-          fs.unlinkSync(resultPath); // Clean up
-          
+    
           // Calculate execution time
           const executionTime = Date.now() - startTime;
           
           // Log node execution results to console
           console.log(`Non-blocking node ${node.data.label || nodeId} (${node.data.type}) completed:`);
-          if (result.log) console.log(`Log: ${result.log}`);
-          if (result.error) console.error(`Error: ${result.error}`);
-          console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
+          console.log(`Output: ${JSON.stringify(nodeInput, null, 2)}`);
           console.log('---');
           
           // Store result and execution time
-          nodeResults[nodeId] = result.output;
-          nodeResults[`${nodeId}_executionTime`] = executionTime;
-        } catch (err) {
-          console.error(`Error processing result for non-blocking node ${nodeId}: ${err.message}`);
-        }
-      } else {
-        setTimeout(checkResultInBackground, 100); // Check again after 100ms
-      }
-    };
-    
-    // Start checking for results in the background
-    setTimeout(checkResultInBackground, 100);
+          nodeResults[nodeId] = nodeInput;
+         
+ 
     
     // Return a placeholder result immediately
     return {
-      output: null,
-      executionTime: 0,
+      output: nodeInput,
+      executionTime: executionTime,
       nonBlocking: true
     };
   }
@@ -685,7 +657,7 @@ function processJobFile(filePath) {
   const jobStr = fs.readFileSync(filePath, "utf8");
   const job = JSON.parse(jobStr);
   const { id, code, type, input, dontWaitForOutput, timeout } = job;
-
+  console.log(`Processing job file: ${filePath} with the timeout ${job.timeout/1000} seconds`);
   // Check if there's already a result file for this job ID
   // This could happen if the frontend tries to execute the same node multiple times
   const existingResultPath = path.join(OUTBOX, `${id}.result.json`);
@@ -811,7 +783,7 @@ function processJobFile(filePath) {
               false,
               true,
               job.basePath || path.dirname(flowFilePath),
-              job.timeout || 30000
+              job.timeout || 60000*60*8
             );
             
             // Restore original console methods and get logs
@@ -892,7 +864,15 @@ function processGroovyNode(id, code, input, finish) {
   input = smartParse(new File('${inputPathGroovy}').text)
   def output = ""
   ${code}
-  new File('${outputPathGroovy}') << output.toString()
+  def asJson = { obj ->
+    try {
+        groovy.json.JsonOutput.toJson(obj)
+    } catch (e) {
+        return groovy.json.JsonOutput.toJson([value: obj?.toString(), error: e.toString()])
+    }
+}
+new File('${outputPathGroovy}').text = asJson(output)
+
   `.trim();
   
   try {
@@ -912,8 +892,14 @@ const process = exec(javaCmd, (error, stdout, stderr) => {
     let outputValue = null;
     try {
       if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, "utf8");
+        const rawOutput = fs.readFileSync(tempOutputPath, "utf8");
+        try {
+          outputValue = JSON.parse(rawOutput);
+        } catch (parseErr) {
+          outputValue = rawOutput; // fallback if not a valid JSON string
+        }
       }
+      
     } catch (err) {
       outputValue = null;
     } finally {

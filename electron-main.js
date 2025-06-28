@@ -458,7 +458,6 @@ app.whenReady().then(() => {
     const resultFile = path.join(outbox, `${payload.id}.result.json`);
 
     await fsp.writeFile(jobFile, JSON.stringify(payload, null, 2), 'utf8');
-
     // For nodes with dontWaitForOutput enabled, don't wait for the result
     if (payload.dontWaitForOutput) {
       console.log(`Node ${payload.id} has dontWaitForOutput enabled, not waiting for result`);
