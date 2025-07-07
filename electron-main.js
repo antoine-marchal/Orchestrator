@@ -38,13 +38,15 @@ app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('disable-accelerated-video-decode');
 app.disableHardwareAcceleration();
 
-const gotTheLock = app.requestSingleInstanceLock();
-
+//const gotTheLock = app.requestSingleInstanceLock();
+const gotTheLock = true;
+const nosplash = false;
 if (!gotTheLock) {
   app.quit();
   process.exit(0);
 } else {
   app.on('second-instance', () => {
+    nosplash=true;
     const win = BrowserWindow.getAllWindows()[0];
     if (win) {
       if (win.isMinimized()) win.restore();
@@ -76,15 +78,7 @@ function createWindow(flowFilePath) {
     // In production, use the one in resources
     preloadPath = path.join(process.resourcesPath, 'preload', 'preload.js');
   }
-  
-  //console.log('Creating window with:');
-  //console.log('- isDev:', isDev);
-  //console.log('- preloadPath:', preloadPath);
-  //console.log('- __dirname:', __dirname);
-  //console.log('- process.resourcesPath:', process.resourcesPath);
-  //console.log('- preloadPath exists:', require('fs').existsSync(preloadPath));
-  
-  // If preload path doesn't exist, try alternative locations
+
   if (!require('fs').existsSync(preloadPath)) {
     console.log('Preload path not found, trying alternatives...');
     
@@ -290,6 +284,39 @@ function stopBackend() {
  * @returns {BrowserWindow} The created splash window
  */
 function createSplashWindow() {
+  const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+  
+  // Choose the appropriate preload path based on environment
+  let preloadPath;
+  if (isDev) {
+    // In development, use the local preload.js file
+    preloadPath = path.join(__dirname, 'preload', 'splash-preload.js');
+  } else {
+    // In production, use the one in resources
+    preloadPath = path.join(process.resourcesPath, 'preload', 'splash-preload.js');
+  }
+
+  if (!require('fs').existsSync(preloadPath)) {
+    console.log('Preload path not found, trying alternatives...');
+    
+    // Try alternative locations
+    const alternatives = [
+      path.join(__dirname, 'splash-preload.js'),
+      path.join(process.resourcesPath, 'splash-preload.js'),
+      path.join(__dirname, 'dist', 'preload', 'splash-preload.js'),
+      path.join(process.cwd(), 'preload', 'splash-preload.js')
+    ];
+    
+    for (const alt of alternatives) {
+      console.log(`Checking alternative: ${alt}`);
+      if (require('fs').existsSync(alt)) {
+        console.log(`Found alternative preload at: ${alt}`);
+        preloadPath = alt;
+        break;
+      }
+    }
+  }
+
   const splash = new BrowserWindow({
     width: 400,
     height: 300,
@@ -297,18 +324,16 @@ function createSplashWindow() {
     frame: false,
     alwaysOnTop: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: preloadPath,
       additionalArguments: [
         '--splashLogo=' + path.join(process.resourcesPath, 'logo.png')
       ]
     },
   });
   
-  // Load the splash screen HTML directly
   splash.loadFile('splash.html');
-  
-  // Center the splash window
   splash.center();
   
   return splash;
@@ -361,7 +386,7 @@ app.whenReady().then(() => {
   let splashCreatedAt = Date.now() ;
   // Create splash window first
   try {
-    splashWindow = createSplashWindow();
+    if(!nosplash)splashWindow = createSplashWindow();
     //console.log('Splash window created');
   } catch (error) {
     console.error('Failed to create splash window:', error);
@@ -376,7 +401,7 @@ app.whenReady().then(() => {
   
   // When main window is ready, close splash
   if (splashWindow) {
-    const MIN_SPLASH_DURATION = 5000; // 3s en ms
+    const MIN_SPLASH_DURATION = 3000; // 3s en ms
     mainWindow.once('ready-to-show', () => {
       console.log('Main window loaded, closing splash');
       
