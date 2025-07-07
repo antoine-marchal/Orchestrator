@@ -14,7 +14,8 @@ import {
   MessageSquare,
   Flag,
   AlarmClockOff,
-  Square
+  Square,
+  ExternalLink
 } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
@@ -50,9 +51,11 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
         
         // If the path is relative, convert it to absolute for opening
         if (data.isRelativePath) {
-          const { flowPath: rootFlowPath, convertToAbsolutePath } = useFlowStore.getState();
-          if (rootFlowPath) {
-            flowPath = convertToAbsolutePath(flowPath, rootFlowPath);
+          const { flowPath: rootFlowPath } = useFlowStore.getState();
+          if (rootFlowPath && window.electronAPI?.getAbsolutePath) {
+            flowPath = window.electronAPI.getAbsolutePath(flowPath, rootFlowPath);
+          } else if (rootFlowPath) {
+            console.error("getAbsolutePath API not available");
           }
         }
         
@@ -77,6 +80,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
     <div className="p-4 border-b border-gray-700">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+
           {(() => {
             switch (data.type) {
               case 'constant':

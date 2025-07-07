@@ -357,7 +357,7 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
           console.log(`1 Non-blocking node will run indefinitely until manually stopped`);
           
           // Execute in the background without awaiting and without timeout
-          executeRegularNode(node, nodeId, nodeInput, nodeResults, false,timeout)
+          executeRegularNode(node, nodeId, nodeInput, nodeResults, false,timeout,basePath)
             .then(result => {
               // Store the result when it's available, but don't block execution
               nodeResults[nodeId] = nodeInput;
@@ -371,7 +371,7 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
           return { output: null, executionTime: 0, nonBlocking: true };
         } else {
           // For regular nodes, wait for completion
-          return await executeRegularNode(node, nodeId, nodeInput, nodeResults,true,timeout);
+          return await executeRegularNode(node, nodeId, nodeInput, nodeResults,true,timeout,basePath);
         }
       };
       
@@ -440,7 +440,16 @@ async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopL
  */
 async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 60000*60*8) {
   // Get the path to the nested flow file
-  let nestedFlowPath = node.data.code || '';
+  let nestedFlowPath = '';
+  
+  // Check if we have a codeFilePath (external file) or use embedded code
+  if (node.data.codeFilePath) {
+    nestedFlowPath = node.data.codeFilePath;
+    console.log(`Using external flow file path: ${nestedFlowPath}`);
+  } else {
+    nestedFlowPath = node.data.code || '';
+    console.log(`Using embedded flow path: ${nestedFlowPath}`);
+  }
   
   // Check if we have a valid flow path
   if (!nestedFlowPath) {
@@ -524,19 +533,22 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
  * @param {boolean} [waitForResult=true] - Whether to wait for the result before resolving
  * @returns {Promise<any>} - The result of the node execution
  */
-async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 60000*60*8) {
+async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 60000*60*8,jobBasePath) {
+
   // Create a temporary job file
   const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const nodeJob = {
     id: nodeJobId,
     code: node.data.code || '',
+    codeFilePath: node.data.codeFilePath || null,
     type: node.data.type,
     input: nodeInput,
     dontWaitForOutput: node.data.dontWaitForOutput,
+    basePath:jobBasePath,
     timeout: timeout
   };
+  console.log('Job base path is :',jobBasePath);
   console.log(`Executing node ${node.data.label || nodeId} (${node.data.type}) with input: ${JSON.stringify(nodeInput)}`);
-
   // Start execution time tracking
   const startTime = Date.now();
   
@@ -656,7 +668,33 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
 function processJobFile(filePath) {
   const jobStr = fs.readFileSync(filePath, "utf8");
   const job = JSON.parse(jobStr);
-  const { id, code, type, input, dontWaitForOutput, timeout } = job;
+  let { id, code, codeFilePath, type, input, dontWaitForOutput, timeout } = job;
+  if (codeFilePath) {
+    try {
+      // Résolution absolue si codeFilePath est relatif
+      let resolvedCodePath = codeFilePath;
+      if (!path.isAbsolute(codeFilePath)) {
+        const basePath = job.basePath;
+        console.log('BasePath is :',basePath);
+        resolvedCodePath = path.resolve(basePath, codeFilePath);
+      }
+
+      console.log(`Loading code from external file: ${resolvedCodePath}`);
+
+      if (fs.existsSync(resolvedCodePath)) {
+        code = fs.readFileSync(resolvedCodePath, 'utf8');
+        console.log(`Successfully loaded code from ${resolvedCodePath}`);
+      } else {
+        console.warn(`Code file not found: ${resolvedCodePath}, falling back to embedded code`);
+      }
+    } catch (err) {
+      console.error(`Error loading code from file ${codeFilePath}: ${err.message}`);
+    }
+  }
+  
+  // Update the job object with the loaded code
+  job.code = code || '';
+  
   console.log(`Processing job file: ${filePath} with the timeout ${job.timeout/1000} seconds`);
   // Check if there's already a result file for this job ID
   // This could happen if the frontend tries to execute the same node multiple times
@@ -733,7 +771,15 @@ function processJobFile(filePath) {
   }
 
   if (type === "flow") {
-    let flowFilePath = code;
+    // Check if we have a codeFilePath (external file) or use embedded code
+    let flowFilePath = '';
+    if (codeFilePath) {
+      flowFilePath = codeFilePath;
+      console.log(`Using external flow file path: ${flowFilePath}`);
+    } else {
+      flowFilePath = code;
+      console.log(`Using embedded flow path: ${flowFilePath}`);
+    }
     
     // If the path is relative and we have a basePath, resolve it
     if (!path.isAbsolute(flowFilePath) && job.basePath) {
@@ -821,20 +867,19 @@ function processJobFile(filePath) {
     }
   }
   else if (type === "groovy") {
-    processGroovyNode(id, code, input, finish);
+    processGroovyNode(id, code, input, finish, codeFilePath);
   }
   else if (type === "batch") {
-    processBatchNode(id, code, input, finish);
+    processBatchNode(id, code, input, finish, codeFilePath);
   }
   else if (type === "jsbackend" || type === "playwright") {
-    processJsBackendNode(id, code, input, finish);
+    processJsBackendNode(id, code, input, finish, codeFilePath);
   }
   else if (type === "powershell") {
-    processPowershellNode(id, code, input, finish);
+    processPowershellNode(id, code, input, finish, codeFilePath);
   }
   else {
-    // JavaScript/Node.js
-    processJsNode(id, code, input, finish);
+    processJsNode(id, code, input, finish, codeFilePath);
   }
 }
 
@@ -844,8 +889,10 @@ function processJobFile(filePath) {
  * @param {string} code - The Groovy code to execute
  * @param {any} input - Input data for the node
  * @param {Function} finish - Callback to finish the job
+ * @param {string} [codeFilePath] - Optional path to external code file
  */
-function processGroovyNode(id, code, input, finish) {
+function processGroovyNode(id, code, input, finish, codeFilePath) {
+
   const tempGroovyPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.groovy`);
   const tempInputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.input`);
   const tempOutputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
@@ -950,8 +997,10 @@ const process = exec(javaCmd, (error, stdout, stderr) => {
  * @param {string} code - The Batch code to execute
  * @param {any} input - Input data for the node
  * @param {Function} finish - Callback to finish the job
+ * @param {string} [codeFilePath] - Optional path to external code file
  */
-function processBatchNode(id, code, input, finish) {
+function processBatchNode(id, code, input, finish, codeFilePath) {
+ 
   const tempBatchPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.bat`);
   const tempOutputPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
   const inputVar = input !== undefined ? String(input).replace(/"/g, '\\"') : "";
@@ -1028,8 +1077,10 @@ ${code}
  * @param {string} code - The JS code to execute
  * @param {any} input - Input data for the node
  * @param {Function} finish - Callback to finish the job
+ * @param {string} [codeFilePath] - Optional path to external code file
  */
-function processJsBackendNode(id, code, input, finish) {
+function processJsBackendNode(id, code, input, finish, codeFilePath) {
+ 
   // Use temp files for the JS script and output
   const tempId = `node_jsbackend_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const tempScriptPath = path.join(INBOX, `${tempId}.js`); // <-- always cjs for best compat
@@ -1103,8 +1154,10 @@ fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf
  * @param {string} code - The PowerShell code to execute
  * @param {any} input - Input data for the node
  * @param {Function} finish - Callback to finish the job
+ * @param {string} [codeFilePath] - Optional path to external code file
  */
-function processPowershellNode(id, code, input, finish) {
+function processPowershellNode(id, code, input, finish, codeFilePath) {
+ 
   const tempPs1Path = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`);
   const tempOutputPath = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
   const inputVar = input !== undefined ? String(input).replace(/"/g, '""') : "";
@@ -1181,6 +1234,7 @@ function processPowershellNode(id, code, input, finish) {
  * @param {Function} finish - Callback to finish the job
  */
 function processJsNode(id, code, input, finish) {
+ console.log(code);
   let logs = [];
   const customConsole = {
     log: (...args) => {

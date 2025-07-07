@@ -4,7 +4,7 @@ import { useFlowStore } from '../../store/flowStore';
 import { NodeHeader } from './NodeHeader';
 import { NodeBody } from './NodeBody';
 import { NodeFooter } from './NodeFooter';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 
 const CustomNode = ({ data, id, selected }: NodeProps) => {
   const { updateNodeData, executeNode, edges, removeNode, nodes, nodeLoading, stopNodeExecution } = useFlowStore();
@@ -63,6 +63,12 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
           : ''
       }`}
     >
+      {/* External file indicator */}
+      {data.codeFilePath && (
+        <div className="absolute -top-2 -right-2 bg-blue-600 rounded-full p-1 z-20 shadow-md" title={`External file: ${data.codeFilePath}`}>
+          <ExternalLink className="w-3 h-3 text-white" />
+        </div>
+      )}
       <div
         ref={contentRef}
         className={`flex flex-col transition-[height] duration-200 'opacity-50  select-none'`}

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback, memo } from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
+import { ExternalLink } from 'lucide-react';
 
 // Function to format execution time in seconds or minutes
 const formatExecutionTime = (timeMs: number): string => {
@@ -172,6 +173,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
     >
 
 <div className="text-sm text-gray-400 space-y-2 relative">
+
   {data.output !== undefined && (
     <>
       <div

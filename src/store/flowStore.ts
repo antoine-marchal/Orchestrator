@@ -1,103 +1,7 @@
 import { create } from 'zustand';
 import { Node, Edge } from 'reactflow';
+import { pathUtils } from '../utils/pathUtils';
 
-// Custom path utilities for cross-platform compatibility
-const pathUtils = {
-  isAbsolute: (p: string): boolean => {
-    return p.startsWith('/') || /^[A-Za-z]:[\\\/]/.test(p);
-  },
-  
-  dirname: (p: string): string => {
-    // Normalize path separators to forward slashes for consistent handling
-    p = p.replace(/\\/g, '/');
-    
-    // Remove trailing slashes
-    p = p.replace(/\/$/, '');
-    
-    // Find the last slash
-    const lastSlashIndex = p.lastIndexOf('/');
-    
-    // Handle cases where no slash is found
-    if (lastSlashIndex === -1) return '.';
-    
-    // Handle root directories
-    if (lastSlashIndex === 0) return '/';
-    
-    // Handle Windows drive roots (e.g., C:/)
-    if (lastSlashIndex === 2 && /^[A-Za-z]:\//.test(p.substring(0, 3))) {
-      return p.substring(0, 3);
-    }
-    
-    // Return the directory part
-    return p.substring(0, lastSlashIndex);
-  },
-  
-  resolve: (dir: string, relativePath: string): string => {
-    // Handle absolute paths in relativePath
-    if (pathUtils.isAbsolute(relativePath)) return relativePath;
-    
-    // Normalize slashes to the system preference (using / for simplicity)
-    dir = dir.replace(/\\/g, '/');
-    relativePath = relativePath.replace(/\\/g, '/');
-    
-    // Ensure dir ends with a slash
-    if (!dir.endsWith('/')) dir += '/';
-    
-    // Combine and normalize the path
-    let result = dir + relativePath;
-    
-    // Handle ../ and ./ in the path
-    const parts = result.split('/');
-    const normalized = [];
-    
-    for (const part of parts) {
-      if (part === '.' || part === '') continue;
-      if (part === '..' && normalized.length > 0 && normalized[normalized.length - 1] !== '..') {
-        normalized.pop();
-      } else {
-        normalized.push(part);
-      }
-    }
-    
-    result = normalized.join('/');
-    
-    // Ensure drive letter is preserved on Windows
-    if (/^[A-Za-z]:/.test(dir)) {
-      const drive = dir.substring(0, 2);
-      if (!result.startsWith(drive)) {
-        result = drive + '/' + result;
-      }
-    }
-    
-    return result;
-  },
-  
-  relative: (from: string, to: string): string => {
-    // Normalize slashes
-    from = from.replace(/\\/g, '/');
-    to = to.replace(/\\/g, '/');
-    
-    // Ensure paths don't end with a slash
-    from = from.replace(/\/$/, '');
-    to = to.replace(/\/$/, '');
-    
-    // Split paths into segments
-    const fromParts = from.split('/');
-    const toParts = to.split('/');
-    
-    // Find common prefix
-    let i = 0;
-    while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) {
-      i++;
-    }
-    
-    // Build relative path
-    const upCount = fromParts.length - i;
-    const relativeParts = Array(upCount).fill('..').concat(toParts.slice(i));
-    
-    return relativeParts.join('/') || '.';
-  }
-};
 
 interface ConsoleMessage {
   nodeId: string;
@@ -462,7 +366,36 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 },
 
 
-  clearFlow: () => {
+  clearFlow: async () => {
+    const state = get();
+    {/** 
+    const oldFlowPath = state.flowPath;
+    
+    // If we have a flow path, check if we need to delete the associated code files folder
+    if (oldFlowPath && window.electronAPI?.directoryExists && window.electronAPI?.deleteDirectory) {
+      const oldFlowFileName = oldFlowPath.split(/[\\/]/).pop() || 'flow';
+      const oldFlowFolderName = oldFlowFileName.replace(/\.or$/, '');
+      const oldFlowFolderPath = pathUtils.join(pathUtils.dirname(oldFlowPath), oldFlowFolderName);
+      
+      // Check if the folder exists
+      const folderExists = await window.electronAPI.directoryExists(oldFlowFolderPath);
+      if (folderExists) {
+        // Ask user for confirmation before deleting the folder
+        const confirmDelete = confirm(
+          `Do you want to delete the associated code files folder?\n${oldFlowFolderPath}`
+        );
+        
+        if (confirmDelete) {
+          try {
+            await window.electronAPI.deleteDirectory(oldFlowFolderPath);
+            console.log(`Deleted code files folder: ${oldFlowFolderPath}`);
+          } catch (err) {
+            console.error(`Error deleting code files folder: ${err}`);
+          }
+        }
+      }
+    }
+    */}
     set({
       nodes: [],
       edges: [],
@@ -583,6 +516,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (!absolutePath || !basePath) return absolutePath;
     
     try {
+      // Use the Electron API if available
+      if (window.electronAPI?.getRelativePath) {
+        return window.electronAPI.getRelativePath(absolutePath, basePath);
+      }
+      
+      // Fallback to the original implementation
       // Normalize paths to use forward slashes
       const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
       const normalizedBasePath = basePath.replace(/\\/g, '/');
@@ -615,6 +554,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (!relativePath || !basePath) return relativePath;
     
     try {
+      // Use the Electron API if available
+      if (window.electronAPI?.getAbsolutePath) {
+        return window.electronAPI.getAbsolutePath(relativePath, basePath);
+      }
+      
+      // Fallback to the original implementation
       // Check if the path is already absolute
       if (pathUtils.isAbsolute(relativePath)) {
         return relativePath;
@@ -658,14 +603,26 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     let nodesToSave = JSON.parse(JSON.stringify(state.nodes));
     
     // If we have a flow path, convert all flow node paths to relative paths
+    // and save code to separate files
     if (state.flowPath) {
+      // Create a folder with the same name as the .or file (without extension)
+      const flowFileName = state.flowPath.split(/[\\/]/).pop() || 'flow';
+      const flowFolderName = flowFileName.replace(/\.or$/, '');
+      const flowFolderPath = pathUtils.join(pathUtils.dirname(state.flowPath), flowFolderName);
       
-      nodesToSave = nodesToSave.map((node: Node) => {
+      // Ensure the folder exists
+      if (window.electronAPI?.ensureDirectoryExists) {
+        await window.electronAPI.ensureDirectoryExists(flowFolderPath);
+      }
+      
+      // Process each node
+      nodesToSave = await Promise.all(nodesToSave.map(async (node: Node) => {
         // Preserve the dontWaitForOutput property when saving
         if (node.data.dontWaitForOutput) {
           node.data.dontWaitForOutput = true;
         }
         
+        // Handle flow nodes (convert paths to relative)
         if (node.data.type === 'flow' && node.data.code) {
           // Check if the path is absolute (regardless of isRelativePath flag)
           const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
@@ -673,7 +630,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           // Convert absolute paths to relative paths
           if (isAbsolutePath) {
             // Convert absolute path to relative path
-            const relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
+            let relativePath;
+            if (window.electronAPI?.getRelativePath) {
+              relativePath = window.electronAPI.getRelativePath(node.data.code, state.flowPath || '');
+            } else {
+              relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
+            }
             
             return {
               ...node,
@@ -695,8 +657,57 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             };
           }
         }
+        
+        // Handle code nodes (save code to separate files)
+        if (node.data.code && ['javascript', 'jsbackend', 'groovy', 'batch', 'powershell'].includes(node.data.type)) {
+          // Determine file extension based on node type
+          let extension;
+          switch (node.data.type) {
+            case 'javascript':
+            case 'jsbackend':
+              extension = 'js';
+              break;
+            case 'groovy':
+              extension = 'groovy';
+              break;
+            case 'batch':
+              extension = 'bat';
+              break;
+            case 'powershell':
+              extension = 'ps1';
+              break;
+            default:
+              extension = 'txt';
+          }
+          {/** 
+          // Create filename: {nodeId}.{extension}
+          const codeFileName = `${node.id}.${extension}`;
+          const codeFilePath = pathUtils.join(flowFolderName, codeFileName);
+          // Ensure state.flowPath is not null or undefined
+          const flowPath = state.flowPath || '';
+          const absoluteCodeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
+          
+          // Save the code to the file
+          if (window.electronAPI?.writeTextFile) {
+            await window.electronAPI.writeTextFile(absoluteCodeFilePath, node.data.code);
+          }
+          else{
+            console.log('writeTextFile not available');
+          }
+          // Update the node data to include the codeFilePath but keep the original code
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              codeFilePath: codeFilePath.replace(/\\/g, '/') // Use forward slashes for consistency
+              // Keep the original code in the code property for backward compatibility
+            }
+          };
+          */}
+        }
+        
         return node;
-      });
+      }));
     }
     
     const flow = { nodes: nodesToSave, edges: state.edges };
@@ -705,7 +716,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     try {
       if (state.flowPath && window.electronAPI?.saveFlowToPath) {
         await window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
-        // After saving, update the nodes in the store with relative paths
+        // After saving, update the nodes in the store with relative paths and codeFilePaths
         if (JSON.stringify(nodesToSave) !== JSON.stringify(state.nodes)) {
           set({ nodes: nodesToSave });
         }
@@ -713,29 +724,61 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         // Use Electron Save As
         const filePath = await window.electronAPI.saveFlowAs(flowJson);
         if (filePath) {
+          // Check if this is a rename operation (we already had a flowPath)
+          const oldFlowPath = state.flowPath;
+          if (oldFlowPath && oldFlowPath !== filePath) {
+            // This is a rename operation
+            const oldFlowFileName = oldFlowPath.split(/[\\/]/).pop() || 'flow';
+            const oldFlowFolderName = oldFlowFileName.replace(/\.or$/, '');
+            const oldFlowFolderPath = pathUtils.join(pathUtils.dirname(oldFlowPath), oldFlowFolderName);
+            
+            const newFlowFileName = filePath.split(/[\\/]/).pop() || 'flow';
+            const newFlowFolderName = newFlowFileName.replace(/\.or$/, '');
+            const newFlowFolderPath = pathUtils.join(pathUtils.dirname(filePath), newFlowFolderName);
+            
+            // Move code files from old folder to new folder if the old folder exists
+            if (window.electronAPI?.directoryExists && window.electronAPI?.moveDirectory) {
+              const oldFolderExists = await window.electronAPI.directoryExists(oldFlowFolderPath);
+              if (oldFolderExists) {
+                // Ensure the new directory exists
+                await window.electronAPI.ensureDirectoryExists(newFlowFolderPath);
+                
+                // Move the files from old folder to new folder
+                await window.electronAPI.moveDirectory(oldFlowFolderPath, newFlowFolderPath);
+                
+                // Update codeFilePath properties in all nodes
+                const updatedNodes = state.nodes.map(node => {
+                  if (node.data.codeFilePath) {
+                    const newCodeFilePath = node.data.codeFilePath.replace(
+                      oldFlowFolderName,
+                      newFlowFolderName
+                    );
+                    return {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        codeFilePath: newCodeFilePath
+                      }
+                    };
+                  }
+                  return node;
+                });
+                
+                // Update nodes in the store
+                set({ nodes: updatedNodes });
+              }
+            }
+          }
+          
           get().setFlowPath(filePath);
           const fileName = filePath.split(/[\\/]/).pop();
           if (fileName) window.electronAPI?.setTitle?.(fileName);
           
-          // After saving for the first time, convert any absolute paths to relative
-          // and update the nodes in the store
-          const updatedNodes = state.nodes.map((node: Node) => {
-            if (node.data.type === 'flow' && node.data.code && !node.data.isRelativePath) {
-              const relativePath = get().convertToRelativePath(node.data.code, filePath);
-              
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  code: relativePath,
-                  isRelativePath: true
-                }
-              };
-            }
-            return node;
-          });
-          
-          set({ nodes: updatedNodes });
+          // After saving for the first time, we need to save the flow again
+          // to properly create the code files in the new location
+          setTimeout(() => {
+            get().saveFlow();
+          }, 100);
         }
       } else {
         // fallback: browser download (cannot get path!)
@@ -764,22 +807,35 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           // Store the master flow path for reference
           const masterFlowPath = result.filePath;
           
-          // Convert relative paths to absolute paths for flow nodes
-          const nodes = flow.nodes.map((node: Node) => {
+          // Get the flow folder path (same name as .or file without extension)
+          const flowFileName = masterFlowPath.split(/[\\/]/).pop() || 'flow';
+          const flowFolderName = flowFileName.replace(/\.or$/, '');
+          const flowFolderPath = pathUtils.join(pathUtils.dirname(masterFlowPath), flowFolderName);
+          
+          // Process each node to load code from external files and convert paths
+          const nodes = await Promise.all(flow.nodes.map(async (node: Node) => {
             // Ensure dontWaitForOutput property is preserved when loading
             if (node.data.dontWaitForOutput === true) {
               node.data.dontWaitForOutput = true;
             }
             
+            // Handle flow nodes (convert relative paths to absolute)
             if (node.data.type === 'flow' && node.data.code) {
               // Process both relative and absolute paths
-              const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
+              const isAbsolutePath = window.electronAPI?.getAbsolutePath
+                ? false // We'll use the API to determine this
+                : pathUtils.isAbsolute(node.data.code);
               
               if (!isAbsolutePath || node.data.isRelativePath) {
                 // It's a relative path - store both versions
                 const relativePath = node.data.code;
                 // Convert relative path to absolute path using the master flow file's location
-                const absolutePath = get().convertToAbsolutePath(relativePath, masterFlowPath);
+                let absolutePath;
+                if (window.electronAPI?.getAbsolutePath) {
+                  absolutePath = window.electronAPI.getAbsolutePath(relativePath, masterFlowPath);
+                } else {
+                  absolutePath = get().convertToAbsolutePath(relativePath, masterFlowPath);
+                }
                 
                 return {
                   ...node,
@@ -794,7 +850,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               } else {
                 // It's an absolute path - convert to relative for display
                 const absolutePath = node.data.code;
-                const relativePath = get().convertToRelativePath(absolutePath, masterFlowPath);
+                let relativePath;
+                if (window.electronAPI?.getRelativePath) {
+                  relativePath = window.electronAPI.getRelativePath(absolutePath, masterFlowPath);
+                } else {
+                  relativePath = get().convertToRelativePath(absolutePath, masterFlowPath);
+                }
                 
                 return {
                   ...node,
@@ -808,8 +869,42 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 };
               }
             }
+            
+            // Handle code nodes with external code files
+            if (node.data.codeFilePath && ['javascript', 'jsbackend', 'groovy', 'batch', 'powershell'].includes(node.data.type)) {
+              try {
+                // Resolve the code file path (could be relative or absolute)
+                let codeFilePath = node.data.codeFilePath;
+                if (!pathUtils.isAbsolute(codeFilePath)) {
+                  // It's a relative path, resolve it relative to the flow file
+                  codeFilePath = pathUtils.join(pathUtils.dirname(masterFlowPath), codeFilePath);
+                }
+                
+                // Read the code from the file if it exists
+                if (window.electronAPI?.readTextFile) {
+                  try {
+                    const code = await window.electronAPI.readTextFile(codeFilePath);
+                    // Update the node with the code from the file
+                    return {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        code: code, // Update the code property with the file content
+                        codeFilePath: node.data.codeFilePath // Keep the codeFilePath for future saves
+                      }
+                    };
+                  } catch (err) {
+                    console.warn(`Could not read code file ${codeFilePath}, using embedded code instead:`, err);
+                    // Keep the existing code if the file can't be read
+                  }
+                }
+              } catch (err) {
+                console.warn(`Error processing code file for node ${node.id}:`, err);
+              }
+            }
+            
             return node;
-          });
+          }));
           
           set({ nodes, edges: flow.edges });
           get().setFlowPath(result.filePath);
@@ -1096,7 +1191,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               const basePath = node.data.flowFilePath || state.flowPath;
               
               if (basePath) {
-                flowPath = get().convertToAbsolutePath(flowPath, basePath);
+                if (window.electronAPI?.getAbsolutePath) {
+                  flowPath = window.electronAPI.getAbsolutePath(flowPath, basePath);
+                } else {
+                  flowPath = get().convertToAbsolutePath(flowPath, basePath);
+                }
               } else {
                 // If we have a relative path but no base path, we can't resolve it
                 throw new Error('Cannot resolve relative path: flow file has not been saved');
@@ -1208,6 +1307,23 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             addLog('input', prettyFormat(processedInputs));
           }
           const originalConsoleLog = console.log;
+          let code = node.data.code?.trim() || '';
+          if (node.data.codeFilePath && window.electronAPI?.readTextFile) {
+            try {
+              const flowPath = state.flowPath || ''; // fallback if no master flowPath available
+              const codeFilePath = pathUtils.isAbsolute(node.data.codeFilePath)
+                ? node.data.codeFilePath
+                : pathUtils.join(pathUtils.dirname(flowPath), node.data.codeFilePath);
+              
+              code = await window.electronAPI.readTextFile(codeFilePath);
+              // Optionally update the node state so the editor reflects the loaded code
+              state.updateNodeData(nodeId, { code }, false);
+              node.data.code = code;
+            } catch (err) {
+              addLog('error', `Failed to load code from file: ${node.data.codeFilePath}`);
+              code = '';
+            }
+          }
           // --- NEW: Run JS directly if language is javascript ---
           if (node.data.language === 'javascript') {
             try {

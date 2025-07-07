@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ToolbarButton from './ToolbarButton';
+import * as path from 'path';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -537,16 +538,62 @@ function Flow() {
   
   // Handle opening the editor modal for flow nodes
   const handleNodeDoubleClick = async (event: React.MouseEvent, node: Node) => {
-    if (node.data.type === 'flow') {
+    // Check if this is a node with external code file that needs to be loaded first
+    if (node.data.codeFilePath && ['javascript', 'jsbackend', 'groovy', 'batch', 'powershell'].includes(node.data.type)) {
+      // Get the absolute path to the external file
+      let absoluteFilePath = node.data.codeFilePath;
+      const { flowPath } = useFlowStore.getState();
+      
+      if (!window.electronAPI?.getAbsolutePath) {
+        console.error("getAbsolutePath API not available");
+        return;
+      }
+      
+      if (!path.isAbsolute(absoluteFilePath) && flowPath) {
+        absoluteFilePath = window.electronAPI.getAbsolutePath(node.data.codeFilePath, flowPath);
+      }
+      
+      // Check if the file exists and load its content
+      // First check if the file exists
+      if (window.electronAPI?.fileExists && window.electronAPI?.readTextFile) {
+        try {
+          const fileExists = await window.electronAPI.fileExists(absoluteFilePath);
+          
+          if (fileExists) {
+            try {
+              // Read the latest content from the file
+              const fileContent = await window.electronAPI.readTextFile(absoluteFilePath);
+              
+              // Update the node's code with the latest content from the file
+              if (fileContent !== node.data.code) {
+                console.log(`Updating node ${node.id} with latest content from external file: ${absoluteFilePath}`);
+                updateNodeData(node.id, { code: fileContent });
+              }
+            } catch (err) {
+              console.error(`Error reading external code file: ${err}`);
+            }
+          } else {
+            console.warn(`External code file not found: ${absoluteFilePath}`);
+          }
+        } catch (err) {
+          console.error(`Error checking if external code file exists: ${err}`);
+        }
+      } else {
+        console.error("fileExists or readTextFile API not available");
+      }
+      
+      // Open the editor modal
+      openEditorModal(node.id);
+    }
+    else if (node.data.type === 'flow') {
       if (node.data.code) {
         // If the flow node already has a file path, open it in a new window
         // If the path is relative, convert it to absolute for opening
         let flowPath = node.data.code;
         const { flowPath: rootFlowPath } = useFlowStore.getState();
         
-        if (node.data.isRelativePath && rootFlowPath) {
-          const { convertToAbsolutePath } = useFlowStore.getState();
-          flowPath = convertToAbsolutePath(flowPath, rootFlowPath);
+        if (node.data.isRelativePath && rootFlowPath && window.electronAPI?.getAbsolutePath) {
+          flowPath = window.electronAPI.getAbsolutePath(flowPath, rootFlowPath);
         } else if (node.data.isRelativePath && !rootFlowPath) {
           // If we have a relative path but no flowPath, we can't resolve it
           alert('Cannot open flow: the main flow file has not been saved');
@@ -575,9 +622,8 @@ function Flow() {
           let isRelativePath = false;
           
           // If the root flow has been saved, store the path relative to it
-          if (flowPath) {
-            const { convertToRelativePath } = useFlowStore.getState();
-            nodePath = convertToRelativePath(result.filePath, flowPath);
+          if (flowPath && window.electronAPI?.getRelativePath) {
+            nodePath = window.electronAPI.getRelativePath(result.filePath, flowPath);
             isRelativePath = true;
           }
           

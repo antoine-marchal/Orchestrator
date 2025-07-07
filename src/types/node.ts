@@ -5,6 +5,7 @@ export interface NodeData {
   type: 'constant' | 'javascript' | 'jsbackend' | 'groovy' | 'batch' | 'powershell' | 'flow' | 'comment';
   language?: string;
   code?: string;
+  codeFilePath?: string; // Path to the external code file
   value?: string;
   input?: any;
   output?: any;
