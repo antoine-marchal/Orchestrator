@@ -2,7 +2,7 @@
   "main": "electron-main.js",
   "name": "orchestrator",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "build": {
     "appId": "house.marchal.orchestrator",
     "productName": "Orchestrator",

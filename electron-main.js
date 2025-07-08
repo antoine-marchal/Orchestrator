@@ -326,13 +326,9 @@ function createSplashWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: preloadPath,
-      additionalArguments: [
-        '--splashLogo=' + path.join(process.resourcesPath, 'logo.png')
-      ]
+      preload: preloadPath
     },
   });
-  
   splash.loadFile('splash.html');
   splash.center();
   
@@ -343,7 +339,13 @@ function createSplashWindow() {
 ipcMain.handle('get-version', () => {
   return app.getVersion();
 });
-
+ipcMain.handle('get-logoPath', () => {
+  const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+  const result = isDev
+          ? path.join(__dirname, 'logo.png')
+          : path.join(process.resourcesPath, 'logo.png');
+  return result;
+});
 app.whenReady().then(() => {
   const { ipcMain } = require('electron');
   const fs = require('fs');
@@ -365,7 +367,7 @@ app.whenReady().then(() => {
         // Import the executeFlowFile function from poller.cjs
         const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
         // Execute the flow file
-        await executeFlowFile(silentModeFlowPath);
+        await executeFlowFile(silentModeFlowPath,null,[],true,true, path.dirname(silentModeFlowPath));
         
   
         

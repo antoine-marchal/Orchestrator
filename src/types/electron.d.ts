@@ -80,12 +80,27 @@ interface ElectronAPI {
   moveDirectory: (sourcePath: string, targetPath: string) => Promise<void>;
   
   /**
-   * Delete a directory and its contents
-   * @param dirPath The directory path to delete
-   * @returns A promise that resolves when the directory is deleted
+   * Deletes a directory and all its contents recursively.
+   * @param dirPath - The absolute path to the directory to delete.
+   * @returns A promise that resolves when the directory has been successfully deleted.
    */
   deleteDirectory: (dirPath: string) => Promise<void>;
-  
+
+  /**
+   * Deletes a single file at the given path.
+   * @param filePath - The absolute path to the file to delete.
+   * @returns A promise that resolves when the file has been successfully deleted.
+   */
+  deleteFile: (filePath: string) => Promise<void>;
+
+  /**
+   * Renames or moves a file from one path to another.
+   * @param oldPath - The current full path of the file.
+   * @param newPath - The new full path for the file, including the desired filename.
+   * @returns A promise that resolves when the file has been successfully renamed or moved.
+   */
+  renameFile: (oldPath: string, newPath: string) => Promise<void>;
+
   /**
    * Check if a file exists
    * @param filePath The file path to check

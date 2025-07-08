@@ -50,6 +50,7 @@ interface FlowState {
   addNode: (node: Node) => void;
   removeNode: (nodeId: string) => void;
   updateNodeData: (nodeId: string, data: any, addHistory?: boolean) => void;
+  updateCodeFilePath: (nodeId:string,label:string) => void;
   toggleDontWaitForOutput: (nodeId: string) => void; // Add method to toggle dontWaitForOutput
   toggleConsole: () => void;
   setFullscreen: () => void;
@@ -452,17 +453,43 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     
     set((state) => ({ nodes: [...state.nodes, node] }));
   },
-  removeNode: (nodeId) => {
+  removeNode: async (nodeId) => {
+    const { nodes, edges } = get();
+    const node = nodes.find(n => n.id === nodeId);
+
     // Add current state to history before making changes
     get().addToHistory();
-    
-    set((state) => ({
-      nodes: state.nodes.filter((node) => node.id !== nodeId),
-      edges: state.edges.filter(
-        (edge) => edge.source !== nodeId && edge.target !== nodeId
-      ),
-    }));
+
+    // If the node has a codeFilePath, ask the user if they want to delete the file
+    if (node?.data?.codeFilePath && window.electronAPI?.deleteFile) {
+      const codeFilePath = node.data.codeFilePath;
+
+      // Resolve the full path if it's relative
+      const flowPath = get().flowPath || '';
+      const absolutePath = pathUtils.isAbsolute(codeFilePath)
+        ? codeFilePath
+        : pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
+
+      const shouldDelete = confirm(`Do you want to delete the associated code file?\n${absolutePath}`);
+
+
+      if (shouldDelete) {
+        try {
+          await window.electronAPI.deleteFile(absolutePath);
+          console.log(`Deleted file: ${absolutePath}`);
+        } catch (err) {
+          console.error(`Failed to delete file ${absolutePath}:`, err);
+        }
+      }
+    }
+
+    // Finally, remove the node and any related edges
+    set({
+      nodes: nodes.filter(n => n.id !== nodeId),
+      edges: edges.filter(e => e.source !== nodeId && e.target !== nodeId)
+    });
   },
+
   updateNodeData: (nodeId, data, addHistory = true) => {
     // Add current state to history before making changes (if addHistory is true)
     if (addHistory) {
@@ -475,6 +502,54 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       ),
     }));
   },
+  updateCodeFilePath: async (nodeId: string, label: string) => {
+    const state = get();
+    const node = state.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    const oldFilePath = node.data.codeFilePath;
+    if (!oldFilePath) return;
+
+    // Confirm rename action with the user
+    //const shouldRename = confirm(`Do you want to rename the code file for this node using its label?\nOld: ${oldFilePath}`);
+    const shouldRename=true;
+    if (!shouldRename) return;
+
+    try {
+      const flowPath = state.flowPath || '';
+      const baseDir = pathUtils.dirname(flowPath);
+      const oldAbsolutePath = pathUtils.isAbsolute(oldFilePath)
+        ? oldFilePath
+        : pathUtils.join(baseDir, oldFilePath);
+
+      const extension = oldFilePath.split('.').pop() || 'txt';
+
+      // Create new file name based on label
+      const sanitizedLabel = label.replace(/[^a-zA-Z0-9_\-]/g, '_'); // replace problematic characters
+      const newFileName = `${sanitizedLabel}.${extension}`;
+      const newRelativePath = pathUtils.join(pathUtils.dirname(oldFilePath), newFileName);
+      const newAbsolutePath = pathUtils.join(baseDir, newRelativePath);
+
+      if (oldAbsolutePath === newAbsolutePath) return; // nothing to do
+
+      // Rename the file via Electron API
+      if (window.electronAPI?.renameFile) {
+        await window.electronAPI.renameFile(oldAbsolutePath, newAbsolutePath);
+        console.log(`Renamed file: ${oldAbsolutePath} → ${newAbsolutePath}`);
+
+        // Update the node with the new relative path
+        state.updateNodeData(nodeId, {
+          codeFilePath: newRelativePath.replace(/\\/g, '/')
+        });
+      } else {
+        console.warn('renameFile API not available.');
+      }
+    } catch (err) {
+      console.error(`Failed to rename code file for node ${nodeId}:`, err);
+      //alert(`Failed to rename code file:\n${err instanceof Error ? err.message : String(err)}`);
+    }
+  },
+
   toggleConsole: () => {set((state) => ({ 
     showConsole: !state.showConsole,
     fullscreen : false }))},
@@ -1366,12 +1441,22 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // --- FALLBACK: Use backend for Groovy/Batch etc ---
             if (node.data.code) {
               // Start execution time tracking
+             
               const startTime = Date.now();
               
               const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+              
+              let codeFilePath = node.data.codeFilePath;
+              if(codeFilePath){
+                const flowPath = get().flowPath;
+                  if (!pathUtils.isAbsolute(codeFilePath) && flowPath) {
+                    codeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
+                  }
+              }
               const payload = {
                 id: jobId,
                 code: node.data.code,
+                codeFilePath: codeFilePath,
                 type: node.data.type,
                 input: processedInputs,
                 timeout: get().nodeExecutionTimeout,

@@ -49,6 +49,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const fs = require('fs').promises;
     await fs.rm(dirPath, { recursive: true, force: true });
   },
+  deleteFile: async(filePath)=>{
+    const fs = require('fs').promises;
+    await fs.unlink(filePath);
+  },
+  renameFile: async (oldPath, newPath) => {
+    const fs = require('fs').promises;
+    await fs.rename(oldPath, newPath);
+  },
   fileExists: async (filePath) => {
     const fs = require('fs').promises;
     try {

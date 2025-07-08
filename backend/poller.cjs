@@ -677,6 +677,7 @@ function processJobFile(filePath) {
         const basePath = job.basePath;
         console.log('BasePath is :',basePath);
         resolvedCodePath = path.resolve(basePath, codeFilePath);
+        codeFilePath=resolvedCodePath;
       }
 
       console.log(`Loading code from external file: ${resolvedCodePath}`);
@@ -1086,6 +1087,21 @@ function processJsBackendNode(id, code, input, finish, codeFilePath) {
   const tempScriptPath = path.join(INBOX, `${tempId}.js`); // <-- always cjs for best compat
   const tempOutputPath = path.join(INBOX, `${tempId}.output`);
 
+  if(codeFilePath){
+    let baseFolder = path.dirname(codeFilePath);
+    const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.+?\.(js|cjs))['"]/g;
+    const rewriteImports = (code, codeFilePath) => {
+      return code.replace(importRegex, (match, importPath) => {
+        // Only modify relative imports (starts with ./ or ../)
+        if (importPath.startsWith('.') || importPath.startsWith('/')) {
+          const rewrittenPath = path.join(codeFilePath, importPath).replace(/\\/g, '/');
+          return match.replace(importPath, 'file://'+rewrittenPath);
+        }
+        return match; // leave bare module imports untouched
+      });
+    };
+    code = rewriteImports(code, baseFolder);
+  }
   const codeWithInput = `
 let output="";
 const input = ${JSON.stringify(input)};
@@ -1234,7 +1250,7 @@ function processPowershellNode(id, code, input, finish, codeFilePath) {
  * @param {Function} finish - Callback to finish the job
  */
 function processJsNode(id, code, input, finish) {
- console.log(code);
+
   let logs = [];
   const customConsole = {
     log: (...args) => {

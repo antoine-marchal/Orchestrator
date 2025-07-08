@@ -118,14 +118,7 @@
     }
   </style>
 </head>
-<script>
-    // Permet de récupérer le chemin du logo passé en argument
-    function getLogoPath() {
-      // Recherche dans les arguments de la fenêtre
-      const arg = (window.process && window.process.argv || []).find(a => a.startsWith('--splashLogo='));
-      return arg ? arg.replace('--splashLogo=','') : 'logo.png';
-    }
-  </script>
+
 <body>
   <div class="logo-container">
     <img class="logo-img" id="splash-logo" alt="Logo Orchestrator" />
@@ -138,12 +131,19 @@
     <a href="https://github.com/antoine-marchal" target="_blank">am-2025</a>
   </div>
   <script>
-    window.onload = function() {
-        document.getElementById('splash-logo').src = getLogoPath();
+    window.onload = async function () {
+      const logoElement = document.getElementById('splash-logo');
+
+      if (window.electronAPI && window.electronAPI.getLogoPath) {
+        const logoPath = await window.electronAPI.getLogoPath();
+        if (logoPath) {
+          logoElement.src = 'file://' + logoPath.replace(/\\/g, '/');
+        }
+      }
+
       if (window.electronAPI && window.electronAPI.getVersion) {
-        window.electronAPI.getVersion().then(version => {
-          document.getElementById('version').textContent = 'v' + version;
-        });
+        const version = await window.electronAPI.getVersion();
+        document.getElementById('version').textContent = 'v' + version;
       }
     };
   </script>

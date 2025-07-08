@@ -111,8 +111,9 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
               e.target.select();
               useFlowStore.getState().setTitleEditing(true);
             }}
-            onBlur={() => {
+            onBlur={(e) => {
               useFlowStore.getState().setTitleEditing(false);
+              useFlowStore.getState().updateCodeFilePath(nodeId,e.target.value);
             }}
             onMouseEnter={() => {
               updateNodeDraggable(nodeId, false);

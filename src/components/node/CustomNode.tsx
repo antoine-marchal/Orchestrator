@@ -7,7 +7,7 @@ import { NodeFooter } from './NodeFooter';
 import { Loader2, ExternalLink } from 'lucide-react';
 
 const CustomNode = ({ data, id, selected }: NodeProps) => {
-  const { updateNodeData, executeNode, edges, removeNode, nodes, nodeLoading, stopNodeExecution } = useFlowStore();
+  const { updateNodeData,updateCodeFilePath, executeNode, edges, removeNode, nodes, nodeLoading, stopNodeExecution } = useFlowStore();
   const isLoading = nodeLoading?.[id];
   
   // Check if this node has dontWaitForOutput enabled
@@ -84,7 +84,10 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
         <NodeHeader
           data={data}
           nodeId={id}
-          onLabelChange={(label) => updateNodeData(id, { label })}
+          onLabelChange={(label) => {
+            updateNodeData(id, { label });
+            
+          }}
           onValueChange={(value) => updateNodeData(id, { value })}
           onExecute={() => executeNode(id)}
           onDelete={() => removeNode(id)}
