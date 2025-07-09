@@ -13,8 +13,10 @@ let silentModeFlowPath = null;
 if (isSilentMode && silentModeIndex + 1 < argv.length) {
   silentModeFlowPath = argv[silentModeIndex + 1];
   // Clean the path if needed
-  silentModeFlowPath = cleanArgPath(silentModeFlowPath);
-  
+  const cleaned = cleanArgPath(silentModeFlowPath);
+  silentModeFlowPath = path.isAbsolute(cleaned)
+    ? cleaned
+    : path.resolve(process.cwd(), cleaned);
   // Verify it's a flow file
   if (!silentModeFlowPath.endsWith('.or') && !silentModeFlowPath.endsWith('.json')) {
     console.error('Error: Silent mode requires a valid flow file path (.or or .json)');
@@ -222,9 +224,7 @@ function startBackend(silent=false) {
   }
 
   const args = [pollerScript];
-  if (silent) {
-    //args.push('--silent');
-  }
+
   
   // Try to use system Node.js first
   let useSystemNode = true;
