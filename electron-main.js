@@ -1,8 +1,109 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, powerSaveBlocker, Tray, Menu } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn,child_process } = require('child_process');
 const kill = require('tree-kill');
 const fs = require('fs');
+
+
+
+let quitting = false;
+let trayRef;   // if you use Tray somewhere, keep a reference
+let powerBlockerIds = new Set(); // track if you use powerSaveBlocker.start()
+
+function destroyAllWindows() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      // give the renderer a tick to run unload handlers
+      win.removeAllListeners?.();
+      win.webContents?.removeAllListeners?.();
+      if (!win.isDestroyed()) win.destroy(); // destroy() is synchronous & harder than close()
+    } catch {}
+  }
+}
+
+function killTree(pid, signal = 'SIGTERM') {
+  return new Promise((resolve) => {
+    if (!pid) return resolve();
+    kill(pid, signal, (err) => resolve()); // ignore errors, we'll do a harder fallback anyway
+  });
+}
+
+// Optional: really hard kill on Windows if a child ignores SIGTERM
+function taskkill(pid) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32' || !pid) return resolve();
+    try {
+      child_process.spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+        .on('close', () => resolve());
+    } catch { resolve(); }
+  });
+}
+
+async function stopBackendHard(backendProcess, timeoutMs = 2000) {
+  if (!backendProcess) return;
+
+  // 1) Try graceful tree kill
+  await killTree(backendProcess.pid, 'SIGTERM');
+
+  // 2) Wait a bit; if still alive, escalate
+  await new Promise(r => setTimeout(r, timeoutMs));
+
+  try {
+    // If Node still sees it, try SIGKILL (POSIX) / taskkill (Windows)
+    if (!backendProcess.killed) {
+      if (process.platform === 'win32') {
+        await taskkill(backendProcess.pid);
+      } else {
+        await killTree(backendProcess.pid, 'SIGKILL');
+      }
+    }
+  } catch {}
+}
+
+async function forceQuit(exitCode = 0) {
+  if (quitting) return; // ensure single-run
+  quitting = true;
+
+  try {
+    // 0) Tell renderers to stop anything long-running (optional)
+    for (const w of BrowserWindow.getAllWindows()) {
+      try { w.webContents.send('app-shutting-down'); } catch {}
+    }
+
+    // 1) Stop your backend (use your existing stopBackend plus hard fallback)
+    try {
+      // your current stopBackend sets backendProcess = undefined after SIGTERM
+      await stopBackend(); // your function
+      // If you keep a handle, pass it to stopBackendHard:
+      // await stopBackendHard(backendProcessRef);
+    } catch {}
+
+    // 2) Clean other resources
+    try { globalShortcut.unregisterAll(); } catch {}
+    try {
+      for (const id of powerBlockerIds) {
+        try { powerSaveBlocker.stop(id); } catch {}
+      }
+      powerBlockerIds.clear();
+    } catch {}
+    try { Menu.setApplicationMenu(null); } catch {}
+    try { if (trayRef) { trayRef.destroy?.(); trayRef = undefined; } } catch {}
+
+    // 3) Destroy all windows (harder than close)
+    destroyAllWindows();
+
+    // 4) Let Electron attempt a graceful quit (fires before-quit/will-quit)
+    app.quit();
+
+    // 5) Final safety net: if we’re still alive after a moment, hard exit
+    setTimeout(() => {
+      try { process.exit(exitCode); } catch {}
+    }, 1500);
+  } catch {
+    // In case of unexpected errors, bail out hard
+    try { process.exit(exitCode); } catch {}
+  }
+}
 
 // Parse command line arguments
 const argv = process.argv.slice(1);
@@ -20,8 +121,9 @@ if (isSilentMode && silentModeIndex + 1 < argv.length) {
   // Verify it's a flow file
   if (!silentModeFlowPath.endsWith('.or') && !silentModeFlowPath.endsWith('.json')) {
     console.error('Error: Silent mode requires a valid flow file path (.or or .json)');
-    app.exit(1);
+    forceQuit(1); // fire-and-forget; forceQuit already schedules a hard exit
   }
+  
 }
 
 // Helper function to clean path arguments
@@ -334,7 +436,7 @@ function createSplashWindow() {
   
   return splash;
 }
-
+const { ipcMain } = require('electron');
 // Expose version to splash screen
 ipcMain.handle('get-version', () => {
   return app.getVersion();
@@ -367,17 +469,18 @@ app.whenReady().then(() => {
         // Import the executeFlowFile function from poller.cjs
         const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
         // Execute the flow file
-        await executeFlowFile(silentModeFlowPath,null,[],true,true, path.dirname(silentModeFlowPath));
+        const result = await executeFlowFile(silentModeFlowPath,null,[],true,true, path.dirname(silentModeFlowPath));
         
   
         
         // Exit the application after execution
         console.log('Flow execution completed. Exiting...');
-        app.exit(0);
+        console.log(result);
+        await forceQuit(0);
       } catch (error) {
         console.error(`Error executing flow in silent mode: ${error.message}`);
 
-        app.exit(1);
+        await forceQuit(1);
       }
     }
     runInSilentMode().catch(err => {
@@ -453,6 +556,7 @@ app.whenReady().then(() => {
       }, remaining);
     });
   }
+  ipcMain.handle('force-quit', async () => { await forceQuit(0); });
 
   ipcMain.handle('save-flow-as', async (event, data) => {
     const result = await dialog.showSaveDialog({
@@ -634,11 +738,22 @@ app.whenReady().then(() => {
     }
   });
 });
+process.on('SIGINT',  () => forceQuit(130)); // 130 = Ctrl+C convention
+process.on('SIGTERM', () => forceQuit(143));
+process.on('uncaughtException', async (err) => {
+  console.error('uncaughtException', err);
+  await forceQuit(1);
+});
+process.on('unhandledRejection', async (err) => {
+  console.error('unhandledRejection', err);
+  await forceQuit(1);
+});
 
 app.on('window-all-closed', () => {
   stopBackend();
   if (process.platform !== 'darwin') app.quit();
 });
+
 
 app.on('before-quit', () => {
   stopBackend();
