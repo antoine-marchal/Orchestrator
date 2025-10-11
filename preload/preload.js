@@ -5,7 +5,6 @@ console.log('!!! PRELOAD LOADED !!!');
 // Expose backend API
 contextBridge.exposeInMainWorld('backendAPI', {
   executeNodeJob: async (payload) => ipcRenderer.invoke('execute-node-job', payload),
-  executeFlowFile: async (flowFilePath, input) => ipcRenderer.invoke('execute-flow-file', flowFilePath, input),
   createStopSignal: async (jobId) => ipcRenderer.invoke('create-stop-signal', jobId),
 });
 

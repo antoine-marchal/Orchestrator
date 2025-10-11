@@ -4,7 +4,6 @@ import * as path from 'path';
 import { pathUtils } from '../utils/pathUtils';
 import ReactFlow, {
   Background,
-  MiniMap,
   Panel,
   NodeTypes,
   OnNodesChange,
@@ -44,8 +43,7 @@ import {
   Redo,
   Copy,
   Clipboard,
-  ToggleLeft,
-  ToggleRight
+  CornerRightDown
 } from 'lucide-react';
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
@@ -117,6 +115,13 @@ const NODE_TYPES = [
     icon: GitBranch,
     iconColor: 'text-emerald-500'
   },
+  {
+    id: 'goto',
+    label: 'Goto',
+    icon: CornerRightDown,       
+    iconColor: 'text-yellow-400',
+  }
+  
 ];
 
 const dagreGraph = new dagre.graphlib.Graph();
@@ -476,7 +481,27 @@ function Flow() {
       
       return;
     }
-  
+    // goto node behavior
+    if (type === 'goto'){
+      const newNode = {
+        id: `node-${Date.now()}`,
+        type: 'custom',
+        position,
+        data: {
+          label: 'Goto',
+          type: 'goto',
+          conditions: [
+            // starter example row users can edit/remove:
+            { expr: 'input?.value < 50', goto: '' },
+          ],
+        },
+        draggable: true,
+      };
+      
+      setNodes((nds) => [...nds, newNode]);
+      closeMenus();
+      return;
+    }
     // Comment nodes only have label/value, and type "comment"
     const newNode = type === 'comment'
       ? {
@@ -646,7 +671,7 @@ function Flow() {
           }
         }
       }
-    } else {
+    } else if(node.data.type !== 'goto') {
       // For other node types, open the regular editor modal
       openEditorModal(node.id);
     }

@@ -554,25 +554,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('execute-flow-file', async (event, flowFilePath, input) => {
-    try {
-      // Get the backend directory
-      const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
-      const backendDir = isDev
-        ? path.join(__dirname, 'backend')
-        : path.join(process.resourcesPath, 'backend');
-      
-      // Import the executeFlowFile function from poller.cjs
-      const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
-      
-      // Execute the flow file
-      const result = await executeFlowFile(flowFilePath, input);
-      return result;
-    } catch (error) {
-      console.error(`Error executing flow file: ${error.message}`);
-      throw error;
-    }
-  });
+
 
   ipcMain.handle('open-flow-file', async () => {
     const result = await dialog.showOpenDialog({

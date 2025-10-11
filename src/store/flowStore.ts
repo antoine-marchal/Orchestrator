@@ -14,8 +14,8 @@ interface FlowState {
   nodes: Node[];
   edges: Edge[];
   nodeLoading: { [key: string]: boolean };
-  panOnDrag : boolean;
-  zoomOnScroll : boolean;
+  panOnDrag: boolean;
+  zoomOnScroll: boolean;
   consoleMessages: ConsoleMessage[];
   showConsole: boolean;
   fullscreen: boolean;
@@ -50,7 +50,7 @@ interface FlowState {
   addNode: (node: Node) => void;
   removeNode: (nodeId: string) => void;
   updateNodeData: (nodeId: string, data: any, addHistory?: boolean) => void;
-  updateCodeFilePath: (nodeId:string,label:string) => void;
+  updateCodeFilePath: (nodeId: string, label: string) => void;
   toggleDontWaitForOutput: (nodeId: string) => void; // Add method to toggle dontWaitForOutput
   toggleConsole: () => void;
   setFullscreen: () => void;
@@ -60,7 +60,6 @@ interface FlowState {
   executeNode: (nodeId: string, isStopAction?: boolean) => void;
   stopNodeExecution: (nodeId: string) => void;
   executeFlow: () => void;
-  executeFlowFile: (flowFilePath: string, input?: any) => Promise<any>;
   saveFlow: () => void;
   loadFlow: () => void;
   removeConnection: (edgeId: string) => void;
@@ -79,7 +78,7 @@ interface FlowState {
   copySelectedNodes: (nodeIds: string[]) => void;
   pasteNodes: () => void;
   getClipboardNodes: () => Node[] | null;
-  clearNodeSelection: (nodes : Node[]) => void;
+  clearNodeSelection: (nodes: Node[]) => void;
   outputClearCounter: number;
 }
 function prettyFormat(val: any): string {
@@ -139,18 +138,18 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
   setTitleEditing: (editing: boolean) => set({ isTitleEditing: editing }),
   setMouseOverConsole: (isOver: boolean) => set({ isMouseOverConsole: isOver }),
-  
+
   // Set a node as the starter node for flow execution
   setStarterNode: (nodeId: string) => {
     const { nodes, starterNodeId } = get();
-    
+
     // Add current state to history before making changes
     get().addToHistory();
-    
+
     // If the clicked node is already the starter, unset it
     if (starterNodeId === nodeId) {
       set({ starterNodeId: null });
-      
+
       // Update all nodes to remove the starter flag
       set((state) => ({
         nodes: state.nodes.map((node) => ({
@@ -164,7 +163,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     } else {
       // Set the new starter node
       set({ starterNodeId: nodeId });
-      
+
       // Update all nodes to set the starter flag only on the selected node
       set((state) => ({
         nodes: state.nodes.map((node) => ({
@@ -182,11 +181,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   toggleDontWaitForOutput: (nodeId: string) => {
     const { nodes } = get();
     const node = nodes.find(n => n.id === nodeId);
-    
+
     if (node) {
       // Add current state to history before making changes
       get().addToHistory();
-      
+
       // Toggle the dontWaitForOutput property
       get().updateNodeData(nodeId, {
         dontWaitForOutput: !node.data.dontWaitForOutput
@@ -199,42 +198,42 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const { historyIndex } = get();
     return historyIndex > 0;
   },
-  
+
   canRedo: () => {
     const { historyIndex, history } = get();
     return historyIndex < history.length - 1;
   },
-  
+
   addToHistory: () => {
     const { nodes, edges, history, historyIndex, maxHistorySize } = get();
     // Create a deep copy of the current state using a more efficient approach
     const currentState = {
-      nodes: nodes.map(node => ({...node})),
-      edges: edges.map(edge => ({...edge}))
+      nodes: nodes.map(node => ({ ...node })),
+      edges: edges.map(edge => ({ ...edge }))
     };
-    
+
     // If we're not at the end of the history, truncate the future states
     const newHistory = historyIndex < history.length - 1
       ? history.slice(0, historyIndex + 1)
       : [...history];
-    
+
     // Add the current state to history
     newHistory.push(currentState);
-    
+
     // If history exceeds max size, remove oldest entries
     if (newHistory.length > maxHistorySize) {
       newHistory.shift();
     }
-    
+
     set({
       history: newHistory,
       historyIndex: newHistory.length - 1
     });
   },
-  
+
   undo: () => {
     const { history, historyIndex } = get();
-    
+
     if (historyIndex > 0) {
       const prevState = history[historyIndex - 1];
       set({
@@ -244,10 +243,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       });
     }
   },
-  
+
   redo: () => {
     const { history, historyIndex } = get();
-    
+
     if (historyIndex < history.length - 1) {
       const nextState = history[historyIndex + 1];
       set({
@@ -257,19 +256,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       });
     }
   },
-  
+
   // Clipboard functionality
   copySelectedNodes: (nodeIds: string[]) => {
     const { nodes, edges } = get();
-    
+
     // Get the selected nodes
     const selectedNodes = nodes.filter(node => nodeIds.includes(node.id));
-    
+
     // Get edges between selected nodes
     const selectedEdges = edges.filter(
       edge => nodeIds.includes(edge.source) && nodeIds.includes(edge.target)
     );
-    
+
     // Store in localStorage (as a simple clipboard)
     if (selectedNodes.length > 0) {
       const clipboardData = {
@@ -280,41 +279,41 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       localStorage.setItem('orchestrator-clipboard', JSON.stringify(clipboardData));
     }
   },
-  
+
   getClipboardNodes: () => {
     try {
       const clipboardData = localStorage.getItem('orchestrator-clipboard');
       if (!clipboardData) return null;
-      
+
       return JSON.parse(clipboardData).nodes;
     } catch (error) {
       console.error('Error reading clipboard:', error);
       return null;
     }
   },
-  
+
   pasteNodes: () => {
     try {
       const clipboardJson = localStorage.getItem('orchestrator-clipboard');
       if (!clipboardJson) return;
-      
+
       const clipboard = JSON.parse(clipboardJson);
       const { nodes, edges } = get();
-      
+
       // Create a mapping of old node IDs to new node IDs
       const idMapping: Record<string, string> = {};
-      
+
       // Create new nodes with new IDs
       const newNodes = clipboard.nodes.map((node: Node) => {
         const newId = `node-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         idMapping[node.id] = newId;
-        
+
         // Offset position slightly to make it clear these are new nodes
         const position = {
           x: node.position.x + 150,
           y: node.position.y + 150
         };
-        
+
         return {
           ...node,
           id: newId,
@@ -326,7 +325,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           selected: true // Ensure new nodes are not selected
         };
       });
-      
+
       // Create new edges with updated source/target IDs
       const newEdges = clipboard.edges.map((edge: Edge) => {
         return {
@@ -336,35 +335,35 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           target: idMapping[edge.target]
         };
       });
-      
+
       // Add the new nodes and edges to the flow
       set({
         nodes: [...nodes, ...newNodes],
         edges: [...edges, ...newEdges]
       });
-      
+
       // Add this change to history
       get().addToHistory();
-      
+
       // Clear selection after paste
-      
+
       get().clearNodeSelection(clipboard.nodes);
-      
+
     } catch (error) {
       console.error('Error pasting nodes:', error);
     }
   },
-  
+
   // Helper function to clear node selection
   clearNodeSelection: (targetedNodes: Node[]) => {
-  const targetedIds = new Set(targetedNodes.map(n => n.id));
-  set((state) => ({
-    nodes: state.nodes.map(node => ({
-      ...node,
-      selected: targetedIds.has(node.id) ? false : node.selected
-    }))
-  }));
-},
+    const targetedIds = new Set(targetedNodes.map(n => n.id));
+    set((state) => ({
+      nodes: state.nodes.map(node => ({
+        ...node,
+        selected: targetedIds.has(node.id) ? false : node.selected
+      }))
+    }));
+  },
 
 
   clearFlow: async () => {
@@ -407,7 +406,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     });
     window.electronAPI?.setTitle?.('default'); // Triggers reset to versioned title
   },
-  
+
   updatePanOnDrag: (isDraggable) => set((state) => ({
     panOnDrag: isDraggable
   })),
@@ -432,25 +431,25 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (addHistory) {
       get().addToHistory();
     }
-    
+
     set((state) => ({
       nodes: typeof nodes === 'function' ? nodes(state.nodes) : nodes
     }));
   },
-  
+
   setEdges: (edges) => {
     // Add current state to history before making changes
     get().addToHistory();
-    
+
     set((state) => ({
       edges: typeof edges === 'function' ? edges(state.edges) : edges
     }));
   },
-  
+
   addNode: (node) => {
     // Add current state to history before making changes
     get().addToHistory();
-    
+
     set((state) => ({ nodes: [...state.nodes, node] }));
   },
   removeNode: async (nodeId) => {
@@ -495,7 +494,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     if (addHistory) {
       get().addToHistory();
     }
-    
+
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === nodeId ? { ...node, data: { ...node.data, ...data } } : node
@@ -512,7 +511,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
     // Confirm rename action with the user
     //const shouldRename = confirm(`Do you want to rename the code file for this node using its label?\nOld: ${oldFilePath}`);
-    const shouldRename=true;
+    const shouldRename = true;
     if (!shouldRename) return;
 
     try {
@@ -550,14 +549,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }
   },
 
-  toggleConsole: () => {set((state) => ({ 
-    showConsole: !state.showConsole,
-    fullscreen : false }))},
-    setFullscreen: () => {set((state) => ({
+  toggleConsole: () => {
+    set((state) => ({
+      showConsole: !state.showConsole,
+      fullscreen: false
+    }))
+  },
+  setFullscreen: () => {
+    set((state) => ({
       fullscreen: !state.fullscreen
-    }))},
-  addConsoleMessage: (message) => 
-    set((state) => ({ 
+    }))
+  },
+  addConsoleMessage: (message) =>
+    set((state) => ({
       consoleMessages: [...state.consoleMessages, message],
       showConsole: true
     })),
@@ -575,47 +579,47 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   removeConnection: (edgeId) => {
     // Add current state to history before making changes
     get().addToHistory();
-    
+
     set((state) => ({
       edges: state.edges.filter((edge) => edge.id !== edgeId)
     }));
   },
-  
+
   openEditorModal: (nodeId) =>
     set({ editorModal: { isOpen: true, nodeId } }),
   closeEditorModal: () =>
     set({ editorModal: { isOpen: false, nodeId: null } }),
-  
+
   // Utility function to convert absolute path to relative path
   convertToRelativePath: (absolutePath: string, basePath: string) => {
     if (!absolutePath || !basePath) return absolutePath;
-   
+
     try {
       // Use the Electron API if available
       if (window.electronAPI?.getRelativePath) {
         return window.electronAPI.getRelativePath(absolutePath, basePath);
       }
-      
+
       // Fallback to the original implementation
       // Normalize paths to use forward slashes
       const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
       const normalizedBasePath = basePath.replace(/\\/g, '/');
-      
+
       // Get directory of the base path
       const baseDir = pathUtils.dirname(normalizedBasePath);
-      
+
       // If the absolute path is in a completely different location than the base path,
       // it might be better to keep it as absolute
       if (!normalizedAbsolutePath.startsWith(baseDir.substring(0, 3))) {
         return absolutePath;
       }
-      
+
       // Convert absolute path to relative path
       const relativePath = pathUtils.relative(baseDir, normalizedAbsolutePath);
-      
+
       // For paths in the same directory, ensure they don't start with ./ for cleaner paths
       const cleanRelativePath = relativePath.startsWith('./') ? relativePath.substring(2) : relativePath;
-      
+
       // Return the relative path with forward slashes for consistency
       return cleanRelativePath.replace(/\\/g, '/');
     } catch (error) {
@@ -623,30 +627,30 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       return absolutePath;
     }
   },
-  
+
   // Utility function to convert relative path to absolute path
   convertToAbsolutePath: (relativePath: string, basePath: string) => {
     if (!relativePath || !basePath) return relativePath;
-    
+
     try {
       // Use the Electron API if available
       if (window.electronAPI?.getAbsolutePath) {
         return window.electronAPI.getAbsolutePath(relativePath, basePath);
       }
-      
+
       // Fallback to the original implementation
       // Check if the path is already absolute
       if (pathUtils.isAbsolute(relativePath)) {
         return relativePath;
       }
-      
+
       // Normalize paths to use forward slashes
       const normalizedBasePath = basePath.replace(/\\/g, '/');
-      
+
       // Extract the directory from the base path
       const baseDir = pathUtils.dirname(normalizedBasePath);
-      
-      
+
+
       // For simple relative paths without directory components,
       // place them in the same directory as the master flow
       if (!relativePath.includes('/') && !relativePath.includes('\\')) {
@@ -657,26 +661,26 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         } else {
           resolvedPath = baseDir + '/' + relativePath;
         }
-        
+
         return resolvedPath;
       }
-      
+
       // For more complex relative paths, use the resolve function
       const resolvedPath = pathUtils.resolve(baseDir, relativePath);
-      
+
       return resolvedPath;
     } catch (error) {
       console.error('Error converting to absolute path:', error);
       return relativePath;
     }
   },
-  
+
   saveFlow: async () => {
     const state = get();
-    
+
     // Create a deep copy of nodes to avoid modifying the original nodes
     let nodesToSave = JSON.parse(JSON.stringify(state.nodes));
-    
+
     // If we have a flow path, convert all flow node paths to relative paths
     // and save code to separate files
     if (state.flowPath) {
@@ -684,37 +688,37 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const flowFileName = state.flowPath.split(/[\\/]/).pop() || 'flow';
       const flowFolderName = flowFileName.replace(/\.or$/, '');
       const flowFolderPath = pathUtils.join(pathUtils.dirname(state.flowPath), flowFolderName);
-      
+
       // Ensure the folder exists
       if (window.electronAPI?.ensureDirectoryExists) {
         await window.electronAPI.ensureDirectoryExists(flowFolderPath);
       }
-      
+
       // Process each node
       nodesToSave = await Promise.all(nodesToSave.map(async (node: Node) => {
         // Preserve the dontWaitForOutput property when saving
         if (node.data.dontWaitForOutput) {
           node.data.dontWaitForOutput = true;
         }
-        
+
         // Handle flow nodes (convert paths to relative)
         if (node.data.type === 'flow' && node.data.code) {
           // Check if the path is absolute (regardless of isRelativePath flag)
           const isAbsolutePath = pathUtils.isAbsolute(node.data.code);
-          
+
           // Convert absolute paths to relative paths
           if (isAbsolutePath) {
             // Convert absolute path to relative path
             let relativePath;
             const baseDir = pathUtils.dirname(state.flowPath || '');
             if (window.electronAPI?.getRelativePath) {
-              
+
               relativePath = window.electronAPI.getRelativePath(node.data.code, baseDir);
 
             } else {
               relativePath = get().convertToRelativePath(node.data.code, baseDir || '');
             }
-           
+
             return {
               ...node,
               data: {
@@ -735,7 +739,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             };
           }
         }
-        
+
         // Handle code nodes (save code to separate files)
         if (node.data.code && ['javascript', 'jsbackend', 'groovy', 'batch', 'powershell'].includes(node.data.type)) {
           // Determine file extension based on node type
@@ -783,14 +787,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           };
           */}
         }
-        
+
         return node;
       }));
     }
-    
+
     const flow = { nodes: nodesToSave, edges: state.edges };
     const flowJson = JSON.stringify(flow, null, 2);
-  
+
     try {
       if (state.flowPath && window.electronAPI?.saveFlowToPath) {
         await window.electronAPI.saveFlowToPath(state.flowPath, flowJson);
@@ -809,21 +813,21 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             const oldFlowFileName = oldFlowPath.split(/[\\/]/).pop() || 'flow';
             const oldFlowFolderName = oldFlowFileName.replace(/\.or$/, '');
             const oldFlowFolderPath = pathUtils.join(pathUtils.dirname(oldFlowPath), oldFlowFolderName);
-            
+
             const newFlowFileName = filePath.split(/[\\/]/).pop() || 'flow';
             const newFlowFolderName = newFlowFileName.replace(/\.or$/, '');
             const newFlowFolderPath = pathUtils.join(pathUtils.dirname(filePath), newFlowFolderName);
-            
+
             // Move code files from old folder to new folder if the old folder exists
             if (window.electronAPI?.directoryExists && window.electronAPI?.moveDirectory) {
               const oldFolderExists = await window.electronAPI.directoryExists(oldFlowFolderPath);
               if (oldFolderExists) {
                 // Ensure the new directory exists
                 await window.electronAPI.ensureDirectoryExists(newFlowFolderPath);
-                
+
                 // Move the files from old folder to new folder
                 await window.electronAPI.moveDirectory(oldFlowFolderPath, newFlowFolderPath);
-                
+
                 // Update codeFilePath properties in all nodes
                 const updatedNodes = state.nodes.map(node => {
                   if (node.data.codeFilePath) {
@@ -841,17 +845,17 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                   }
                   return node;
                 });
-                
+
                 // Update nodes in the store
                 set({ nodes: updatedNodes });
               }
             }
           }
-          
+
           get().setFlowPath(filePath);
           const fileName = filePath.split(/[\\/]/).pop();
           if (fileName) window.electronAPI?.setTitle?.(fileName);
-          
+
           // After saving for the first time, we need to save the flow again
           // to properly create the code files in the new location
           setTimeout(() => {
@@ -874,47 +878,48 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       alert(`Error saving flow: ${error instanceof Error ? error.message : String(error)}`);
     }
   },
-  
+
   loadFlow: async () => {
     if (window.electronAPI?.openFlowFile) {
       const result = await window.electronAPI.openFlowFile();
       if (result && result.data) {
         try {
           const flow = JSON.parse(result.data);
-          
+
           // Store the master flow path for reference
           const masterFlowPath = result.filePath;
-          
+
           // Get the flow folder path (same name as .or file without extension)
           const flowFileName = masterFlowPath.split(/[\\/]/).pop() || 'flow';
           const flowFolderName = flowFileName.replace(/\.or$/, '');
           const flowFolderPath = pathUtils.join(pathUtils.dirname(masterFlowPath), flowFolderName);
-          
+
           // Process each node to load code from external files and convert paths
           const nodes = await Promise.all(flow.nodes.map(async (node: Node) => {
             // Ensure dontWaitForOutput property is preserved when loading
             if (node.data.dontWaitForOutput === true) {
               node.data.dontWaitForOutput = true;
             }
-            
+
             // Handle flow nodes (convert relative paths to absolute)
             if (node.data.type === 'flow' && node.data.code) {
               // Process both relative and absolute paths
               const isAbsolutePath = window.electronAPI?.getAbsolutePath
                 ? false // We'll use the API to determine this
                 : pathUtils.isAbsolute(node.data.code);
-              
+
               if (!isAbsolutePath || node.data.isRelativePath) {
                 // It's a relative path - store both versions
                 const relativePath = node.data.code;
                 // Convert relative path to absolute path using the master flow file's location
                 let absolutePath;
-                if (window.electronAPI?.getAbsolutePath) {
-                  absolutePath = window.electronAPI.getAbsolutePath(relativePath, masterFlowPath);
-                } else {
-                  absolutePath = get().convertToAbsolutePath(relativePath, masterFlowPath);
-                }
                 
+                if (window.electronAPI?.getAbsolutePath) {
+                  absolutePath = window.electronAPI.getAbsolutePath(relativePath, pathUtils.dirname(masterFlowPath || ''));
+                } else {
+                  absolutePath = get().convertToAbsolutePath(relativePath, pathUtils.dirname(masterFlowPath || ''));
+                }
+
                 return {
                   ...node,
                   data: {
@@ -935,7 +940,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 } else {
                   relativePath = get().convertToRelativePath(absolutePath, baseDir);
                 }
-                
+
                 return {
                   ...node,
                   data: {
@@ -948,7 +953,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 };
               }
             }
-            
+
             // Handle code nodes with external code files
             if (node.data.codeFilePath && ['javascript', 'jsbackend', 'groovy', 'batch', 'powershell'].includes(node.data.type)) {
               try {
@@ -958,7 +963,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                   // It's a relative path, resolve it relative to the flow file
                   codeFilePath = pathUtils.join(pathUtils.dirname(masterFlowPath), codeFilePath);
                 }
-                
+
                 // Read the code from the file if it exists
                 if (window.electronAPI?.readTextFile) {
                   try {
@@ -981,123 +986,205 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 console.warn(`Error processing code file for node ${node.id}:`, err);
               }
             }
-            
+
             return node;
           }));
-          
+
           set({ nodes, edges: flow.edges });
           get().setFlowPath(result.filePath);
           const fileName = result.filePath.split(/[\\/]/).pop();
-          if(fileName)window.electronAPI?.setTitle?.(fileName);
+          if (fileName) window.electronAPI?.setTitle?.(fileName);
         } catch (error) {
           console.error('Error loading flow:', error);
         }
       }
     }
   },
-  
-  executeFlowFile: async (flowFilePath: string, input?: any) => {
-    try {
-      // Check if there's already a flow running with this path
-      const state = get();
-      const isFlowRunning = Object.entries(state.nodeLoading).some(([nodeId, isLoading]) => {
-        if (!isLoading) return false;
-        const node = state.nodes.find(n => n.id === nodeId);
-        return node?.data.type === 'flow' &&
-               (node?.data.code === flowFilePath || node?.data.absolutePath === flowFilePath);
-      });
-      
-      if (isFlowRunning) {
-        throw new Error('This flow is already running. Please wait for it to complete before executing again.');
-      }
-      
-      if (window.backendAPI?.executeFlowFile) {
-        return await window.backendAPI.executeFlowFile(flowFilePath, input);
-      } else {
-        throw new Error('Backend API not available');
-      }
-    } catch (error) {
-      console.error('Error executing flow file:', error);
-      throw error;
-    }
-  },
-  
-  executeFlow: async () => {
-    const state = get();
-    const visited = new Set<string>();
-    const executed = new Set<string>();
-    const executing = new Set<string>();
-    
-    const executeNodeInFlow = async (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      
-      // Get the node to check if it has dontWaitForOutput set
-      const node = state.nodes.find(n => n.id === nodeId);
-      if (!node) return;
-      
-      // Check if the node is already executing (from nodeLoading state)
-      if (state.nodeLoading[nodeId]) {
-        // Node is already running, log a message and skip execution
-        state.addConsoleMessage({
-          nodeId,
-          type: 'error',
-          message: `Skipping node execution: already running`,
-          timestamp: Date.now(),
-        });
-        return;
-      }
-      
-      // Execute all input nodes first, but only if they're valid to execute
-      const inputEdges = state.edges.filter(e => e.target === nodeId);
-      
-      // For nodes that don't wait for output, we start their execution but don't await it
-      const inputPromises = inputEdges.map(async (edge) => {
-        const sourceNode = state.nodes.find(n => n.id === edge.source);
-        
-        // If the source node has dontWaitForOutput set to true, we don't wait for it
-        if (sourceNode?.data.dontWaitForOutput) {
-          // If it's not already executing or executed, start execution but don't await
-          if (!executing.has(edge.source) && !executed.has(edge.source) && !state.nodeLoading[edge.source]) {
-            executing.add(edge.source);
-            // Start execution without awaiting
-            executeNodeInFlow(edge.source).then(() => {
-              executing.delete(edge.source);
-            });
-          }
-        } else {
-          // For normal nodes, wait for them to complete
-          await executeNodeInFlow(edge.source);
-        }
-      });
-      
-      // Wait for all input nodes that require waiting
-      await Promise.all(inputPromises);
 
-      if (!executed.has(nodeId) && !state.nodeLoading[nodeId]) {
-        await state.executeNode(nodeId);
-        executed.add(nodeId);
+
+
+  executeFlow: async () => {
+    // ---------- helpers that always read fresh state ----------
+    const byId = (id: string) => get().nodes.find(n => n.id === id) || null;
+    const incoming = (id: string) => get().edges.filter(e => e.target === id);
+    const outgoing = (id: string) => get().edges.filter(e => e.source === id);
+    const isRoot   = (id: string) => incoming(id).length === 0;
+  
+    const creationIndex = (id: string) => {
+      const i = get().nodes.findIndex(n => n.id === id);
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
+  
+    const rootOf = (id: string) => {
+      const seen = new Set<string>();
+      let q = [id];
+      const roots: string[] = [];
+      while (q.length) {
+        const cur = q.pop()!;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        const inc = incoming(cur);
+        if (inc.length === 0) roots.push(cur);
+        else inc.forEach(e => q.push(e.source));
+      }
+      if (!roots.length) return id;
+      roots.sort((a, b) => creationIndex(a) - creationIndex(b));
+      return roots[0];
+    };
+  
+    const firstCreatedRoot = () => {
+      const roots = get().nodes.map(n => n.id).filter(isRoot);
+      if (!roots.length) return null;
+      roots.sort((a, b) => creationIndex(a) - creationIndex(b));
+      return roots[0];
+    };
+  
+    const firstCreatedGoto = () => {
+      const gotos = get().nodes.filter(n => n.data?.type === 'goto');
+      if (!gotos.length) return null;
+      gotos.sort((a, b) => creationIndex(a.id) - creationIndex(b.id));
+      return gotos[0].id;
+    };
+  
+    const stripTrailingSemis = (s: string) => (s ?? '').trim().replace(/;+\s*$/, '');
+    const toNumberIfNumeric  = (v: any) =>
+      (typeof v === 'string' && v.trim() !== '' && !isNaN(+v) ? +v : v);
+  
+    const evalGotoExpr = (expr: string, input: any): boolean => {
+      try {
+        const cleaned = stripTrailingSemis(expr);
+        const ninput  = toNumberIfNumeric(input);
+        const fn = new Function('input', 'ninput', `return !!(${cleaned});`);
+        return !!fn(input, ninput);
+      } catch {
+        return false;
       }
     };
-    
-    // Find all end nodes (nodes with no outgoing edges)
-    const endNodes = state.nodes.filter(node =>
-      !state.edges.some(edge => edge.source === node.id)
-    );
-    
-    // If there's a starter node, use that as the entry point
-    if (state.starterNodeId) {
-      await executeNodeInFlow(state.starterNodeId);
-    } else {
-      // No starter node, execute the flow normally starting from each end node
-      for (const node of endNodes) {
-        await executeNodeInFlow(node.id);
-      }
+  
+    // ---------- choose entry ----------
+    let entryId: string | null = null;
+    if (get().starterNodeId) entryId = get().starterNodeId!;
+    else {
+      const g = firstCreatedGoto();
+      entryId = g ? rootOf(g) : firstCreatedRoot();
     }
+  
+    if (!entryId) {
+      get().addConsoleMessage({
+        nodeId: '',
+        type: 'error',
+        message: 'No valid entry point found.',
+        timestamp: Date.now(),
+      });
+      return;
+    }
+  
+    // reset goto decisions freshly
+    get().nodes
+      .filter(n => n.data?.type === 'goto')
+      .forEach(n => get().updateNodeData(n.id, { gotoDecision: null }, false));
+  
+    // ---------- scheduler ----------
+    const executed  = new Set<string>();
+    const executing = new Set<string>();
+    const visitCount: Record<string, number> = {};
+    const executedAt: Record<string, number> = {};
+    let tick = 0;
+  
+    const MAX_VISITS_PER_NODE = 1000;
+    const MAX_STEPS = 1000;
+  
+    const ensureExecuted = async (nodeId: string, force = false): Promise<void> => {
+      if (executing.has(nodeId)) return;
+      //if (executed.has(nodeId) && !force) return;
+  
+      const node = byId(nodeId);
+      if (!node) return;
+  
+      executing.add(nodeId);
+  
+      // predecessors first
+      const preds = incoming(nodeId).map(e => e.source);
+      for (const p of preds) await ensureExecuted(p, false);
+  
+      if (node.data?.type === 'goto') {
+        const inEdges = incoming(nodeId);
+        const inputNodes = inEdges
+          .map(e => byId(e.source))
+          .filter((n): n is NonNullable<typeof n> => !!n);
+  
+        const inputs = await Promise.all(
+          inputNodes.map(async (n) => {
+            if (n.data?.type === 'constant') return n.data.value;
+            return byId(n.id)?.data?.output;   // <— read fresh output
+          })
+        );
+        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+        const rules = Array.isArray(node.data?.conditions) ? node.data.conditions : [];
+        let decision: string | null = null;
+        for (const r of rules) {
+          if (r?.expr && r?.goto) {
+            if (evalGotoExpr(r.expr, processedInputs)) { decision = r.goto; break; }
+          }
+        }
+  
+        get().updateNodeData(nodeId, { output: processedInputs, gotoDecision: decision }, false);
+      } else {
+        await get().executeNode(nodeId);
+      }
+  
+      executed.add(nodeId);
+      executedAt[nodeId] = ++tick;
+      executing.delete(nodeId);
+    };
+  
+    const stepTo = async (nextId: string, stepBudget: { left: number }) => {
+      if (stepBudget.left-- <= 0) return;
+  
+      visitCount[nextId] = (visitCount[nextId] ?? 0) + 1;
+      if (visitCount[nextId] > MAX_VISITS_PER_NODE) return;
+  
+      const node  = byId(nextId);
+      const preds = incoming(nextId).map(e => e.source);
+      const gotoNeedsRefresh =
+        node?.data?.type === 'goto' &&
+        preds.some(p => (executedAt[p] || 0) > (executedAt[nextId] || 0));
+  
+      await ensureExecuted(nextId, gotoNeedsRefresh);
+  
+      const n = byId(nextId);
+      if (!n) return;
+  
+      if (n.data?.type === 'goto') {
+        const decision = n.data.gotoDecision;
+  
+        if (decision) {
+          // re-run the jump target so we can loop/jump across branches
+          await ensureExecuted(decision, true);
+          await stepTo(decision, stepBudget);
+          return;
+        }
+  
+        // default: follow graphical outs if any
+        const outs = outgoing(nextId);
+        for (const e of outs) await stepTo(e.target, stepBudget);
+        return;
+      }
+  
+      // normal node: follow outs
+      const outs = outgoing(nextId);
+      for (const e of outs) await stepTo(e.target, stepBudget);
+    };
+  
+    await stepTo(entryId, { left: MAX_STEPS });
   },
+  
+
+
+
   moveConnection: (nodeId, type, edgeId, direction) =>
     set((state) => {
-      const relevantEdges = state.edges.filter(edge => 
+      const relevantEdges = state.edges.filter(edge =>
         type === 'input' ? edge.target === nodeId : edge.source === nodeId
       );
       const currentIndex = relevantEdges.findIndex(e => e.id === edgeId);
@@ -1108,10 +1195,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       }
 
       const reorderedEdges = [...relevantEdges];
-      [reorderedEdges[currentIndex], reorderedEdges[newIndex]] = 
-      [reorderedEdges[newIndex], reorderedEdges[currentIndex]];
+      [reorderedEdges[currentIndex], reorderedEdges[newIndex]] =
+        [reorderedEdges[newIndex], reorderedEdges[currentIndex]];
 
-      const otherEdges = state.edges.filter(edge => 
+      const otherEdges = state.edges.filter(edge =>
         type === 'input' ? edge.target !== nodeId : edge.source !== nodeId
       );
 
@@ -1121,260 +1208,185 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }),
 
 
-    // Add a dedicated method to stop node execution
-    stopNodeExecution: (nodeId: string) => {
-      const state = get();
-      
-      // If the node is not running, there's nothing to stop
-      if (!state.nodeLoading[nodeId]) {
-        return;
+  // Add a dedicated method to stop node execution
+  stopNodeExecution: (nodeId: string) => {
+    const state = get();
+
+    // If the node is not running, there's nothing to stop
+    if (!state.nodeLoading[nodeId]) {
+      return;
+    }
+
+    // Mark this node as being stopped
+    state.stoppingNodes.add(nodeId);
+
+    // Log that we're stopping the node
+    state.addConsoleMessage({
+      nodeId,
+      type: 'log',
+      message: `Stopping node execution...`,
+      timestamp: Date.now(),
+    });
+
+    // Find the job ID for this node
+    const node = state.nodes.find(n => n.id === nodeId);
+    if (node && node.data && node.data.jobId) {
+      // Create a stop signal file for the backend
+      if (window.backendAPI?.createStopSignal) {
+        window.backendAPI.createStopSignal(node.data.jobId)
+          .then(() => {
+            console.log(`Stop signal created for job ${node.data.jobId}`);
+
+            // For nodes with dontWaitForOutput, we need to manually set the loading state to false
+            // since the IPC handler won't do it for us (it returned immediately)
+            if (node.data.dontWaitForOutput) {
+              // Add a small delay to allow the backend to process the stop signal
+              setTimeout(() => {
+                state.setNodeLoading(nodeId, false);
+                state.stoppingNodes.delete(nodeId);
+
+                // Clear the job ID
+                state.updateNodeData(nodeId, { jobId: undefined }, false);
+
+                // Log that execution was stopped
+                state.addConsoleMessage({
+                  nodeId,
+                  type: 'log',
+                  message: `Node execution stopped`,
+                  timestamp: Date.now(),
+                });
+              }, 500);
+            }
+          })
+          .catch((err: Error) => {
+            console.error(`Error creating stop signal: ${err.message}`);
+          });
       }
-      
-      // Mark this node as being stopped
-      state.stoppingNodes.add(nodeId);
-      
-      // Log that we're stopping the node
+    }
+
+    // For regular nodes (not dontWaitForOutput), call executeNode with the stop action flag
+    // For dontWaitForOutput nodes, we handle the state update in the createStopSignal callback above
+    if (!node?.data.dontWaitForOutput) {
+      state.executeNode(nodeId, true);
+    }
+  },
+
+  executeNode: async (nodeId: string, isStopAction = false) => {
+    const state = get();
+
+    // Check if the node is already executing
+    if (state.nodeLoading[nodeId] && !isStopAction) {
+      // Node is already running, show a message in the console
+      state.addConsoleMessage({
+        nodeId,
+        type: 'error',
+        message: `Cannot execute node: already running`,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    // If this is a stop action for a running node, handle it differently
+    if (isStopAction && state.nodeLoading[nodeId]) {
+      // Mark the node as no longer loading
+      state.setNodeLoading(nodeId, false);
+
+      // Remove from stopping nodes set
+      state.stoppingNodes.delete(nodeId);
+
+      // Clear the job ID
+      state.updateNodeData(nodeId, { jobId: undefined }, false);
+
+      // Log that execution was stopped
       state.addConsoleMessage({
         nodeId,
         type: 'log',
-        message: `Stopping node execution...`,
+        message: `Node execution stopped`,
         timestamp: Date.now(),
       });
-      
-      // Find the job ID for this node
-      const node = state.nodes.find(n => n.id === nodeId);
-      if (node && node.data && node.data.jobId) {
-        // Create a stop signal file for the backend
-        if (window.backendAPI?.createStopSignal) {
-          window.backendAPI.createStopSignal(node.data.jobId)
-            .then(() => {
-              console.log(`Stop signal created for job ${node.data.jobId}`);
-              
-              // For nodes with dontWaitForOutput, we need to manually set the loading state to false
-              // since the IPC handler won't do it for us (it returned immediately)
-              if (node.data.dontWaitForOutput) {
-                // Add a small delay to allow the backend to process the stop signal
-                setTimeout(() => {
-                  state.setNodeLoading(nodeId, false);
-                  state.stoppingNodes.delete(nodeId);
-                  
-                  // Clear the job ID
-                  state.updateNodeData(nodeId, { jobId: undefined }, false);
-                  
-                  // Log that execution was stopped
-                  state.addConsoleMessage({
-                    nodeId,
-                    type: 'log',
-                    message: `Node execution stopped`,
-                    timestamp: Date.now(),
-                  });
-                }, 500);
-              }
-            })
-            .catch((err: Error) => {
-              console.error(`Error creating stop signal: ${err.message}`);
-            });
-        }
-      }
-      
-      // For regular nodes (not dontWaitForOutput), call executeNode with the stop action flag
-      // For dontWaitForOutput nodes, we handle the state update in the createStopSignal callback above
-      if (!node?.data.dontWaitForOutput) {
-        state.executeNode(nodeId, true);
-      }
-    },
 
-    executeNode: async (nodeId: string, isStopAction = false) => {
-      const state = get();
-      
-      // Check if the node is already executing
-      if (state.nodeLoading[nodeId] && !isStopAction) {
-        // Node is already running, show a message in the console
-        state.addConsoleMessage({
-          nodeId,
-          type: 'error',
-          message: `Cannot execute node: already running`,
-          timestamp: Date.now(),
-        });
-        return;
-      }
-      
-      // If this is a stop action for a running node, handle it differently
-      if (isStopAction && state.nodeLoading[nodeId]) {
-        // Mark the node as no longer loading
+      return;
+    }
+
+    state.setNodeLoading(nodeId, true);
+    const node = state.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    // We don't clear previous output anymore to preserve it during execution
+    // The output will be updated with new results when execution completes
+
+    const addLog = (type: ConsoleMessage['type'], message: string) => {
+      state.addConsoleMessage({
+        nodeId,
+        type,
+        message,
+        timestamp: Date.now(),
+      });
+    };
+
+    // If this node has dontWaitForOutput set, log it
+    if (node.data.dontWaitForOutput) {
+      addLog('log', 'Node is set to not wait for output - execution will continue in parallel');
+      addLog('log', 'This node will run indefinitely until manually stopped');
+      // For nodes with dontWaitForOutput, we need to ensure the node stays in loading state
+      // even after the IPC handler returns immediately
+    }
+
+    try {
+      let result: any, log: any, error: any;
+      if (node.data.type === 'goto') {
+        // pass-through on manual execute
+        const inEdges = state.edges.filter(e => e.target === nodeId);
+        const inputNodes = inEdges
+          .map(e => state.nodes.find(n => n.id === e.source))
+          .filter((n): n is Node => n !== undefined);
+        const inputs = await Promise.all(inputNodes.map(n => n.data.type === 'constant' ? n.data.value : n.data.output));
+        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+        state.updateNodeData(nodeId, { output: processedInputs, gotoDecision: null }, false);
         state.setNodeLoading(nodeId, false);
-        
-        // Remove from stopping nodes set
-        state.stoppingNodes.delete(nodeId);
-        
-        // Clear the job ID
-        state.updateNodeData(nodeId, { jobId: undefined }, false);
-        
-        // Log that execution was stopped
-        state.addConsoleMessage({
-          nodeId,
-          type: 'log',
-          message: `Node execution stopped`,
-          timestamp: Date.now(),
-        });
-        
         return;
-      }
-      
-      state.setNodeLoading(nodeId, true);
-      const node = state.nodes.find((n) => n.id === nodeId);
-      if (!node) return;
-    
-      // We don't clear previous output anymore to preserve it during execution
-      // The output will be updated with new results when execution completes
-      
-      const addLog = (type: ConsoleMessage['type'], message: string) => {
-        state.addConsoleMessage({
-          nodeId,
-          type,
-          message,
-          timestamp: Date.now(),
-        });
-      };
-      
-      // If this node has dontWaitForOutput set, log it
-      if (node.data.dontWaitForOutput) {
-        addLog('log', 'Node is set to not wait for output - execution will continue in parallel');
-        addLog('log', 'This node will run indefinitely until manually stopped');
-        // For nodes with dontWaitForOutput, we need to ensure the node stays in loading state
-        // even after the IPC handler returns immediately
-      }
-      
-      try {
-        let result: any, log: any, error: any;
-    
-        if (node.data.type === 'constant') {
-          result = node.data.value;
-        } else if (node.data.type === 'flow') {
-          // For flow nodes, we execute the referenced flow file using the backend poller
-          try {
-            // Start execution time tracking
-            const startTime = Date.now();
-            
-            // Get the flow file path - use absolutePath if available, otherwise use code
-            let flowPath = node.data.absolutePath || node.data.code;
-            if (!flowPath) {
-              throw new Error('No flow file specified');
-            }
-            
-            
-            // If we have a relative path and no absolutePath, we need to resolve it
-            if (node.data.isRelativePath && !node.data.absolutePath) {
-              // Determine the base path for resolution
-              // Use the node's flowFilePath if available (for nested flows), otherwise use the master flow path
-              const basePath = node.data.flowFilePath || state.flowPath;
-              
-              if (basePath) {
-                const baseDir = pathUtils.dirname(basePath || '');
-                if (window.electronAPI?.getAbsolutePath) {
-                  flowPath = window.electronAPI.getAbsolutePath(flowPath, baseDir);
-                } else {
-                  flowPath = get().convertToAbsolutePath(flowPath, baseDir);
-                }
-              } else {
-                // If we have a relative path but no base path, we can't resolve it
-                throw new Error('Cannot resolve relative path: flow file has not been saved');
-              }
-            }
-            
-            addLog('log', `Loading flow from: ${flowPath}`);
-            
-            // Find input nodes and sort them by connection order
-            const inputEdges = state.edges.filter(e => e.target === nodeId);
-            const inputNodes = inputEdges
-              .map(e => state.nodes.find(n => n.id === e.source))
-              .filter((n): n is Node => n !== undefined);
-      
-            // Get input values from connected nodes
-            const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
-              if (inputNode.data.type === 'constant') {
-                return inputNode.data.value;
-              }
-              return inputNode.data.output;
-            }));
-            const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
-            if (inputs.length > 0) {
-              addLog('input', prettyFormat(processedInputs));
-            }
-            
-            // Create a payload for the backend poller
-            const payload = {
-              id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
-              code: flowPath,
-              type: 'flow',
-              input: processedInputs,
-              timeout: get().nodeExecutionTimeout,
-              // Pass the directory of the flow file as the base path for resolving nested flows
-              basePath: pathUtils.dirname(flowPath),
-              // Store the flow file path for reference
-              flowFilePath: flowPath
-            };
-            
-            
-            addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
-            
-            // Call the backend API to execute the flow
-            const resultData = await (window as any).backendAPI.executeNodeJob(payload);
-            
-            // Process the result from the flow execution
-            // The output could be any valid value, so we shouldn't filter based on string comparison
-            result = resultData.output;
-            
-            // Get execution time if available (will be used later)
-            
-            // Process logs from nested flow execution
-            // These logs will include the [Nested] prefix added by the backend
-            log = resultData.log;
-            
-            // If we have logs from nested flow execution, process them to display properly
-            if (log && typeof log === 'string' && log.includes('[Nested]')) {
-              // Split the log by lines to process each nested log entry
-              const logLines = log.split('\n');
-              
-              // Process each line of the log
-              logLines.forEach(line => {
-                if (line.includes('[Nested]')) {
-                  // Extract the nested log message
-                  const nestedLogMessage = line.substring(line.indexOf('[Nested]') + 9).trim();
-                  
-                  // Determine if it's an error or regular log
-                  if (nestedLogMessage.startsWith('ERROR:')) {
-                    // It's an error log from a nested node
-                    const errorMessage = nestedLogMessage.substring(7).trim();
-                    addLog('error', `Nested: ${errorMessage}`);
-                  } else {
-                    // It's a regular log from a nested node
-                    addLog('log', `Nested: ${nestedLogMessage}`);
-                  }
-                }
-              });
-            }
-            
-            error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
-            
-            // Calculate execution time - use the one from backend if available, otherwise calculate locally
-            const executionTime = resultData.executionTime || (Date.now() - startTime);
-            
-            // Store execution time in node data
-            node.data.executionTime = executionTime;
-            
-            // Ensure the node data is updated with the nested flow execution result
-            state.updateNodeData(nodeId, { output: result, executionTime });
-          } catch (err) {
-            error = (err as Error).message;
+      } else if (node.data.type === 'constant') {
+        result = node.data.value;
+      } else if (node.data.type === 'flow') {
+        // For flow nodes, we execute the referenced flow file using the backend poller
+        try {
+          // Start execution time tracking
+          const startTime = Date.now();
+
+          // Get the flow file path - use absolutePath if available, otherwise use code
+          let flowPath = node.data.absolutePath || node.data.code;
+          if (!flowPath) {
+            throw new Error('No flow file specified');
           }
-        } else {
+
+          
+          // If we have a relative path and no absolutePath, we need to resolve it
+          if (node.data.isRelativePath && !node.data.absolutePath) {
+            // Determine the base path for resolution
+            // Use the node's flowFilePath if available (for nested flows), otherwise use the master flow path
+            const basePath = node.data.flowFilePath || state.flowPath;
+            
+            if (basePath) {
+              const baseDir = pathUtils.dirname(basePath || '');
+              if (window.electronAPI?.getAbsolutePath) {
+                flowPath = window.electronAPI.getAbsolutePath(flowPath, baseDir);
+              } else {
+                flowPath = get().convertToAbsolutePath(flowPath, baseDir);
+              }
+            } else {
+              // If we have a relative path but no base path, we can't resolve it
+              throw new Error('Cannot resolve relative path: flow file has not been saved');
+            }
+          }
+
+          addLog('log', `Loading flow from: ${flowPath}`);
+
           // Find input nodes and sort them by connection order
           const inputEdges = state.edges.filter(e => e.target === nodeId);
           const inputNodes = inputEdges
             .map(e => state.nodes.find(n => n.id === e.source))
             .filter((n): n is Node => n !== undefined);
-    
+
           // Get input values from connected nodes
           const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
             if (inputNode.data.type === 'constant') {
@@ -1386,162 +1398,247 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           if (inputs.length > 0) {
             addLog('input', prettyFormat(processedInputs));
           }
-          const originalConsoleLog = console.log;
-          let code = node.data.code?.trim() || '';
-          if (node.data.codeFilePath && window.electronAPI?.readTextFile) {
-            try {
-              const flowPath = state.flowPath || ''; // fallback if no master flowPath available
-              const codeFilePath = pathUtils.isAbsolute(node.data.codeFilePath)
-                ? node.data.codeFilePath
-                : pathUtils.join(pathUtils.dirname(flowPath), node.data.codeFilePath);
-              
-              code = await window.electronAPI.readTextFile(codeFilePath);
-              // Optionally update the node state so the editor reflects the loaded code
-              state.updateNodeData(nodeId, { code }, false);
-              node.data.code = code;
-            } catch (err) {
-              addLog('error', `Failed to load code from file: ${node.data.codeFilePath}`);
-              code = '';
-            }
+
+          // Create a payload for the backend poller
+          const payload = {
+            id: 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+            code: flowPath,
+            type: 'flow',
+            input: processedInputs,
+            timeout: get().nodeExecutionTimeout,
+            // Pass the directory of the flow file as the base path for resolving nested flows
+            basePath: pathUtils.dirname(flowPath),
+            // Store the flow file path for reference
+            flowFilePath: flowPath
+          };
+          
+          addLog('log',pathUtils.dirname(flowPath));
+          addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
+
+          // Call the backend API to execute the flow
+          const resultData = await (window as any).backendAPI.executeNodeJob(payload);
+
+          // Process the result from the flow execution
+          // The output could be any valid value, so we shouldn't filter based on string comparison
+          result = resultData.output;
+
+          // Get execution time if available (will be used later)
+
+          // Process logs from nested flow execution
+          // These logs will include the [Nested] prefix added by the backend
+          log = resultData.log;
+
+          // If we have logs from nested flow execution, process them to display properly
+          if (log && typeof log === 'string' && log.includes('[Nested]')) {
+            // Split the log by lines to process each nested log entry
+            const logLines = log.split('\n');
+
+            // Process each line of the log
+            logLines.forEach(line => {
+              if (line.includes('[Nested]')) {
+                // Extract the nested log message
+                const nestedLogMessage = line.substring(line.indexOf('[Nested]') + 9).trim();
+
+                // Determine if it's an error or regular log
+                if (nestedLogMessage.startsWith('ERROR:')) {
+                  // It's an error log from a nested node
+                  const errorMessage = nestedLogMessage.substring(7).trim();
+                  addLog('error', `Nested: ${errorMessage}`);
+                } else {
+                  // It's a regular log from a nested node
+                  addLog('log', `Nested: ${nestedLogMessage}`);
+                }
+              }
+            });
           }
-          // --- NEW: Run JS directly if language is javascript ---
-          if (node.data.language === 'javascript') {
-            try {
-              // Start execution time tracking
-              const startTime = Date.now();
-              
-              // Generate a job ID for this execution
-              const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-              
-              // Store the job ID in the node data for potential termination
-              state.updateNodeData(nodeId, { jobId }, false);
-              
-              let code = node.data.code?.trim() || '';
-              let fn;
-              if (/^function\s*\w*\s*\(/.test(code)) {
-                fn = new Function(`${code}; return process(arguments[0]);`);
-              } else {
-                fn = new Function('input', code.includes('return') ? code : `return (${code})`);
-              }
-              const logBuffer: any[] = [];
-              console.log = (...args) => {
-                args.forEach(arg => addLog('log', prettyFormat(arg)));
-                logBuffer.push(args);
-              };
-              result = fn(processedInputs);
-              console.log = originalConsoleLog;
-              
-              // Calculate execution time
-              const executionTime = Date.now() - startTime;
-              
-              // Store execution time in node data
-              // We'll update the execution time when we update the output
-              node.data.executionTime = executionTime;
-            } catch (err) {
-              console.log = originalConsoleLog;
-              error = (err as Error).message;
-            }
+
+          error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+
+          // Calculate execution time - use the one from backend if available, otherwise calculate locally
+          const executionTime = resultData.executionTime || (Date.now() - startTime);
+
+          // Store execution time in node data
+          node.data.executionTime = executionTime;
+
+          // Ensure the node data is updated with the nested flow execution result
+          state.updateNodeData(nodeId, { output: result, executionTime });
+        } catch (err) {
+          error = (err as Error).message;
+        }
+      } else {
+        // Find input nodes and sort them by connection order
+        const inputEdges = state.edges.filter(e => e.target === nodeId);
+        const inputNodes = inputEdges
+          .map(e => state.nodes.find(n => n.id === e.source))
+          .filter((n): n is Node => n !== undefined);
+
+        // Get input values from connected nodes
+        const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
+          if (inputNode.data.type === 'constant') {
+            return inputNode.data.value;
           }
-           else {
-            // --- FALLBACK: Use backend for Groovy/Batch etc ---
-            if (node.data.code) {
-              // Start execution time tracking
-             
-              const startTime = Date.now();
-              
-              const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-              
-              let codeFilePath = node.data.codeFilePath;
-              if(codeFilePath){
-                const flowPath = get().flowPath;
-                  if (!pathUtils.isAbsolute(codeFilePath) && flowPath) {
-                    codeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
-                  }
+          return inputNode.data.output;
+        }));
+        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+        if (inputs.length > 0) {
+          addLog('input', prettyFormat(processedInputs));
+        }
+        const originalConsoleLog = console.log;
+        let code = node.data.code?.trim() || '';
+        if (node.data.codeFilePath && window.electronAPI?.readTextFile) {
+          try {
+            const flowPath = state.flowPath || ''; // fallback if no master flowPath available
+            const codeFilePath = pathUtils.isAbsolute(node.data.codeFilePath)
+              ? node.data.codeFilePath
+              : pathUtils.join(pathUtils.dirname(flowPath), node.data.codeFilePath);
+
+            code = await window.electronAPI.readTextFile(codeFilePath);
+            // Optionally update the node state so the editor reflects the loaded code
+            state.updateNodeData(nodeId, { code }, false);
+            node.data.code = code;
+          } catch (err) {
+            addLog('error', `Failed to load code from file: ${node.data.codeFilePath}`);
+            code = '';
+          }
+        }
+        // --- NEW: Run JS directly if language is javascript ---
+        if (node.data.language === 'javascript') {
+          try {
+            // Start execution time tracking
+            const startTime = Date.now();
+
+            // Generate a job ID for this execution
+            const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+
+            // Store the job ID in the node data for potential termination
+            state.updateNodeData(nodeId, { jobId }, false);
+
+            let code = node.data.code?.trim() || '';
+            let fn;
+            if (/^function\s*\w*\s*\(/.test(code)) {
+              fn = new Function(`${code}; return process(arguments[0]);`);
+            } else {
+              fn = new Function('input', code.includes('return') ? code : `return (${code})`);
+            }
+            const logBuffer: any[] = [];
+            console.log = (...args) => {
+              args.forEach(arg => addLog('log', prettyFormat(arg)));
+              logBuffer.push(args);
+            };
+            result = fn(processedInputs);
+            console.log = originalConsoleLog;
+
+            // Calculate execution time
+            const executionTime = Date.now() - startTime;
+
+            // Store execution time in node data
+            // We'll update the execution time when we update the output
+            node.data.executionTime = executionTime;
+          } catch (err) {
+            console.log = originalConsoleLog;
+            error = (err as Error).message;
+          }
+        }
+        else {
+          // --- FALLBACK: Use backend for Groovy/Batch etc ---
+          if (node.data.code) {
+            // Start execution time tracking
+
+            const startTime = Date.now();
+
+            const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+
+            let codeFilePath = node.data.codeFilePath;
+            if (codeFilePath) {
+              const flowPath = get().flowPath;
+              if (!pathUtils.isAbsolute(codeFilePath) && flowPath) {
+                codeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
               }
-              const payload = {
-                id: jobId,
-                code: node.data.code,
-                codeFilePath: codeFilePath,
-                type: node.data.type,
-                input: processedInputs,
-                timeout: get().nodeExecutionTimeout,
-                dontWaitForOutput: node.data.dontWaitForOutput
-              };
-              
-              // Store the job ID in the node data for potential termination
-              state.updateNodeData(nodeId, { jobId }, false);
-              
-              // For nodes with dontWaitForOutput, we need to ensure the jobId is preserved
-              // so that the node can be stopped later
-              // CALL THE EXPOSED API FROM PRELOAD
-              const resultData = await (window as any).backendAPI.executeNodeJob(payload);
-              result = resultData.output !== '[]' ? resultData.output : null;
-              log = resultData.log;
-              error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
-              
-              // For nodes with dontWaitForOutput, the resultData will have dontWaitForOutput=true
-              // We need to preserve this information to maintain the loading state
-              //if (resultData.dontWaitForOutput) {
-              //  result = { ...result, dontWaitForOutput: true };
-              //}
-              
-              // Calculate execution time
-              const executionTime = resultData.executionTime || (Date.now() - startTime);
-              
-              // Store execution time in node data
-              node.data.executionTime = executionTime;
-              
-              // For nodes with dontWaitForOutput, we need to keep the loading state active
-              // since the process is still running in the background
-              if (node.data.dontWaitForOutput && resultData.dontWaitForOutput) {
-                // Keep the node in loading state
-                // We'll only update the output, but keep the loading state and jobId
-                state.updateNodeData(nodeId, {
-                  output: result,
-                  // Keep jobId to allow stopping the node later
-                }, false);
-                
-                // Return early to prevent setting nodeLoading to false
-                return;
-              }
+            }
+            const payload = {
+              id: jobId,
+              code: node.data.code,
+              codeFilePath: codeFilePath,
+              type: node.data.type,
+              input: processedInputs,
+              timeout: get().nodeExecutionTimeout,
+              dontWaitForOutput: node.data.dontWaitForOutput
+            };
+
+            // Store the job ID in the node data for potential termination
+            state.updateNodeData(nodeId, { jobId }, false);
+
+            // For nodes with dontWaitForOutput, we need to ensure the jobId is preserved
+            // so that the node can be stopped later
+            // CALL THE EXPOSED API FROM PRELOAD
+            const resultData = await (window as any).backendAPI.executeNodeJob(payload);
+            result = resultData.output !== '[]' ? resultData.output : null;
+            log = resultData.log;
+            error = resultData.error !== null && resultData.error !== 'null' ? resultData.error : null;
+
+            // For nodes with dontWaitForOutput, the resultData will have dontWaitForOutput=true
+            // We need to preserve this information to maintain the loading state
+            //if (resultData.dontWaitForOutput) {
+            //  result = { ...result, dontWaitForOutput: true };
+            //}
+
+            // Calculate execution time
+            const executionTime = resultData.executionTime || (Date.now() - startTime);
+
+            // Store execution time in node data
+            node.data.executionTime = executionTime;
+
+            // For nodes with dontWaitForOutput, we need to keep the loading state active
+            // since the process is still running in the background
+            if (node.data.dontWaitForOutput && resultData.dontWaitForOutput) {
+              // Keep the node in loading state
+              // We'll only update the output, but keep the loading state and jobId
+              state.updateNodeData(nodeId, {
+                output: result,
+                // Keep jobId to allow stopping the node later
+              }, false);
+
+              // Return early to prevent setting nodeLoading to false
+              return;
             }
           }
         }
-        
-        // Only set loading to false if this is not a dontWaitForOutput node
-        // or if it's a dontWaitForOutput node that has actually completed
-        if (!(node.data.dontWaitForOutput && result?.dontWaitForOutput)) {
-          state.setNodeLoading(nodeId, false);
-        }
-        if (log) addLog('log', prettyFormat(log));
-        if (result !== undefined && result !== null && typeof result === 'object' && 'output' in result) addLog('output', prettyFormat(result.output));
-        else if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
-        if (error) addLog('error', prettyFormat(error));
-        
-        // For nodes with dontWaitForOutput, we need to keep the jobId
-        // so that the node can be stopped later
-        if (node.data.dontWaitForOutput && result?.dontWaitForOutput) {
-          // Only update the output, keep the jobId
-          state.updateNodeData(nodeId, {
-            output: result
-          });
-        } else {
-          // For regular nodes, update node data with result and clear jobId
-          state.updateNodeData(nodeId, {
-            output: result,
-            jobId: undefined // Clear the job ID when execution is complete
-          });
-        }
-      } catch (error: any) {
-        addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
-        state.setNodeLoading(nodeId, false);
-        
-        // Clear the job ID when an error occurs
-        state.updateNodeData(nodeId, { jobId: undefined }, false);
       }
-    },
-    
-    
-    
+
+      // Only set loading to false if this is not a dontWaitForOutput node
+      // or if it's a dontWaitForOutput node that has actually completed
+      if (!(node.data.dontWaitForOutput && result?.dontWaitForOutput)) {
+        state.setNodeLoading(nodeId, false);
+      }
+      if (log) addLog('log', prettyFormat(log));
+      if (result !== undefined && result !== null && typeof result === 'object' && 'output' in result) addLog('output', prettyFormat(result.output));
+      else if (result !== undefined && result !== null) addLog('output', prettyFormat(result));
+      if (error) addLog('error', prettyFormat(error));
+
+      // For nodes with dontWaitForOutput, we need to keep the jobId
+      // so that the node can be stopped later
+      if (node.data.dontWaitForOutput && result?.dontWaitForOutput) {
+        // Only update the output, keep the jobId
+        state.updateNodeData(nodeId, {
+          output: result
+        });
+      } else {
+        // For regular nodes, update node data with result and clear jobId
+        state.updateNodeData(nodeId, {
+          output: result,
+          jobId: undefined // Clear the job ID when execution is complete
+        });
+      }
+    } catch (error: any) {
+      addLog('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
+      state.setNodeLoading(nodeId, false);
+
+      // Clear the job ID when an error occurs
+      state.updateNodeData(nodeId, { jobId: undefined }, false);
+    }
+  },
+
+
+
 
 }));

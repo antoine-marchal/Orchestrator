@@ -15,7 +15,7 @@ import {
   Flag,
   AlarmClockOff,
   Square,
-  ExternalLink
+  CornerRightDown
 } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
@@ -98,6 +98,8 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
                 return <Terminal className="w-5 h-5 text-gray-400 flex-shrink-0" />;
               case 'powershell':
                 return <TerminalSquare className="w-5 h-5 text-blue-400 flex-shrink-0" />;
+              case 'goto':
+                return <CornerRightDown className="w-5 h-5 text-yellow-400 flex-shrink-0" />;   
               case 'comment':
                 return <MessageSquare className="w-5 h-5 text-gray-500 flex-shrink-0" />;
               default:
@@ -128,7 +130,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           />
         </div>
         <div className="flex items-center gap-2">
-          {data.type !== 'constant' && data.type !== 'flow' && (
+          {data.type !== 'constant' && data.type !== 'flow' && data.type !== 'goto' && (
             <button
               className="p-1 hover:bg-gray-700 rounded"
               onClick={() => openEditorModal(nodeId)}
@@ -144,6 +146,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
               <Edit2 className="w-4 h-4 text-blue-500" />
             </button>
           )}
+          {data.type !== 'goto' && (
           <button
             className={`p-1 hover:bg-gray-700 rounded ${isNodeExecuting ? 'cursor-not-allowed opacity-50' : ''}`}
             onClick={onExecute}
@@ -151,6 +154,8 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           >
             <Play className="w-4 h-4 text-green-500" />
           </button>
+          )}
+          {data.type !== 'goto' && (
           <button
             className={`p-1 hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-700' : ''}`}
             onClick={() => setStarterNode(nodeId)}
@@ -158,8 +163,9 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           >
             <Flag className={`w-4 h-4 ${data.isStarterNode ? 'text-yellow-500' : 'text-gray-500'}`} />
           </button>
+          )}
           {/* Stop button (shown when node is executing) */}
-          {isNodeExecuting ? (
+          {data.type !== 'goto' && isNodeExecuting && (
             <button
               className="p-1 hover:bg-gray-700 rounded"
               onClick={() => stopNodeExecution(nodeId)}
@@ -167,7 +173,8 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
             >
               <Square className="w-4 h-4 text-red-500" />
             </button>
-          ) : (
+          )}
+          {data.type !== 'goto' && !isNodeExecuting && (
             <button
               className={`p-1 hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-700' : ''}`}
               onClick={() => toggleDontWaitForOutput(nodeId)}

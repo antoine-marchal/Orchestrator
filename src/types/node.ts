@@ -2,18 +2,25 @@ import { Node, Edge } from 'reactflow';
 
 export interface NodeData {
   label: string;
-  type: 'constant' | 'javascript' | 'jsbackend' | 'groovy' | 'batch' | 'powershell' | 'flow' | 'comment';
+  type: 'constant' | 'javascript' | 'jsbackend' | 'groovy' | 'batch' | 'powershell' | 'flow' | 'comment' | 'goto';
   language?: string;
   code?: string;
-  codeFilePath?: string; // Path to the external code file
+  codeFilePath?: string;
   value?: string;
   input?: any;
   output?: any;
-  executionTime?: number; // Execution time in milliseconds
-  isRelativePath?: boolean; // Indicates if the path stored in code is relative
-  isStarterNode?: boolean; // Indicates if this node is the starter node for flow execution
-  dontWaitForOutput?: boolean; // Indicates if execution should continue without waiting for this node's output
-  jobId?: string; // The ID of the job when the node is executing
+  executionTime?: number;
+  isRelativePath?: boolean;
+  isStarterNode?: boolean;
+  dontWaitForOutput?: boolean;
+  jobId?: string;
+
+  //Add Goto-specific fields
+  conditions?: Array<{
+    expr: string;        // JS expression, e.g. "input.value < 50"
+    goto: string;        // nodeId to jump to
+  }>;
+  gotoDecision?: string | null; // transient decision during "run entire flow"
 }
 
 export interface ConnectionItemProps {
@@ -35,3 +42,4 @@ export interface EdgeConnection {
 
 export type NodeType = Node<NodeData>;
 export type EdgeType = Edge;
+

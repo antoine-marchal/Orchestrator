@@ -142,50 +142,41 @@ function createLogCollector() {
  * @returns {Object} Parsed flow with node maps and dependency information
  */
 function parseFlowFile(flowFilePath) {
-  // Check if the flow file exists
   if (!fs.existsSync(flowFilePath)) {
     throw new Error(`Flow file not found: ${flowFilePath}`);
   }
 
-  // Read and parse the flow file
   const flowContent = fs.readFileSync(flowFilePath, 'utf8');
   const flow = JSON.parse(flowContent);
-  
-  if (!flow.nodes || !Array.isArray(flow.nodes) || !flow.edges || !Array.isArray(flow.edges)) {
+
+  if (!Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) {
     throw new Error('Invalid flow file format: missing nodes or edges array');
   }
-  
-  // Create a map of node IDs to nodes for easy lookup
+
   const nodeMap = {};
-  flow.nodes.forEach(node => {
-    nodeMap[node.id] = node;
+  flow.nodes.forEach((n) => (nodeMap[n.id] = n));
+
+  const incomingMap = {};
+  const outgoingMap = {};
+  flow.edges.forEach((e) => {
+    (incomingMap[e.target] ||= []).push(e);
+    (outgoingMap[e.source] ||= []).push(e);
   });
-  
-  // Create a map of dependencies (which nodes depend on which)
-  const dependencies = {};
-  flow.edges.forEach(edge => {
-    if (!dependencies[edge.target]) {
-      dependencies[edge.target] = [];
-    }
-    dependencies[edge.target].push(edge.source);
-  });
-  
-  // Find nodes with no outgoing edges (end nodes)
-  const endNodes = flow.nodes.filter(node =>
-    !flow.edges.some(edge => edge.source === node.id)
-  );
-  
-  if (endNodes.length === 0) {
-    throw new Error('Invalid flow: no end nodes found');
-  }
+
+  // roots = nodes with no incoming
+  const roots = flow.nodes
+    .map((n) => n.id)
+    .filter((id) => !(incomingMap[id] && incomingMap[id].length));
 
   return {
     flow,
     nodeMap,
-    dependencies,
-    endNodes
+    incomingMap,
+    outgoingMap,
+    roots,
   };
 }
+
 
 /**
  * Execute a flow file directly
@@ -195,239 +186,235 @@ function parseFlowFile(flowFilePath) {
  * @param {boolean} [isTopLevel=true] - Whether this is a top-level flow execution
  * @returns {Promise<any>} - The result of the flow execution
  */
-async function executeFlowFile(flowFilePath, input = null, flowPath = [], isTopLevel = true, respectStarterNode = true, basePath = null, timeout = 60000*60*8) {
+async function executeFlowFile(
+  flowFilePath,
+  flowInput = null,
+  flowPath = [],
+  isTopLevel = true,
+  _respectStarterNode = true,
+  basePath = null,
+  timeout = 60000 * 60 * 8
+) {
   return new Promise((resolve, reject) => {
-    try {
-      // Check for circular references
-      if (flowPath.includes(flowFilePath)) {
-        console.warn(`Circular reference detected in flow execution: ${flowFilePath}`);
-        resolve(null); // Return null for circular references instead of rejecting
-        return;
-      }
-      
-      // Add current flow to the path
-      const currentFlowPath = [...flowPath, flowFilePath];
-      
-      // If this is a top-level flow execution, mark it as the master flow
-      if (isTopLevel) {
-        isMasterFlowRunning = true;
-      }
+    (async () => {
+      try {
+        if (flowPath.includes(flowFilePath)) {
+          console.warn(`Circular reference detected in flow execution: ${flowFilePath}`);
+          return resolve(null);
+        }
+        const currentFlowPath = [...flowPath, flowFilePath];
+        if (isTopLevel) isMasterFlowRunning = true;
 
-      // Parse the flow file
-      const { flow, nodeMap, dependencies, endNodes } = parseFlowFile(flowFilePath);
-      
-      // Check if there's a starter node in the flow
-      const starterNode = flow.nodes.find(node => node.data && node.data.isStarterNode);
-      const starterNodeId = starterNode ? starterNode.id : null;
-      
-      // Track executed nodes and their results
-      const nodeResults = {};
-      const visited = new Set();
-      
-      // Store the flow path in the visited object for reference in nested flows
-      visited.flowPath = currentFlowPath;
-      
-      // Set up log collection for the flow execution
-      const { restore: restoreConsole } = createLogCollector();
-      
-      // Log the flow execution start
-      console.log(`Executing flow: ${flowFilePath}`);
-      
-      // Function to check if a node is the starter node or a descendant of it
-      function isNodeDescendantOfStarter(nodeId, starterId, nodes, edges) {
-        // If this is the starter node, return true
-        if (nodeId === starterId) {
-          return true;
-        }
-        
-        // Create a queue for BFS
-        const queue = [starterId];
-        const visitedNodes = new Set();
-        
-        // Perform BFS starting from the starter node
-        while (queue.length > 0) {
-          const currentId = queue.shift();
-          
-          if (visitedNodes.has(currentId)) {
-            continue;
-          }
-          
-          visitedNodes.add(currentId);
-          
-          // Find all outgoing edges from the current node
-          const outgoingEdges = edges.filter(e => e.source === currentId);
-          
-          for (const edge of outgoingEdges) {
-            if (edge.target === nodeId) {
-              // Found the target node as a descendant
-              return true;
-            }
-            
-            // Add the target to the queue for further exploration
-            queue.push(edge.target);
-          }
-        }
-        
-        // If we get here, the node is not a descendant
-        return false;
-      }
-      
-      // Function to execute a node and its dependencies recursively
-      const executeNodeInFlow = async (nodeId) => {
-        if (visited.has(nodeId)) {
-          return nodeResults[nodeId];
-        }
-        visited.add(nodeId);
-        
-        // If we have a starter node and respect it, and this node is not the starter node or a descendant,
-        // we should skip it
-        if (respectStarterNode && starterNodeId && !isNodeDescendantOfStarter(nodeId, starterNodeId, flow.nodes, flow.edges)) {
-          return;
-        }
-        
-        // Execute all dependencies first, but only if they're valid to execute
-        const deps = dependencies[nodeId] || [];
-        const nonWaitingDeps = new Set(); // Track dependencies that don't wait for output
-        
-        for (const depId of deps) {
-          // If we have a starter node and this is the starter node, we don't need to execute its dependencies
-          if (respectStarterNode && starterNodeId && nodeId === starterNodeId) {
-            continue;
-          }
-          
-          // If we have a starter node, only execute dependencies that are descendants of the starter
-          if (respectStarterNode && starterNodeId && !isNodeDescendantOfStarter(depId, starterNodeId, flow.nodes, flow.edges)) {
-            continue;
-          }
-          
-          // Check if this dependency has dontWaitForOutput enabled
-          const depNode = nodeMap[depId];
+        const {
+          flow, nodeMap, incomingMap, outgoingMap, roots
+        } = parseFlowFile(flowFilePath);
 
-            // For regular dependencies, wait for them to complete
-            await executeNodeInFlow(depId);
-          
+        const starter = flow.nodes.find((n) => n?.data?.isStarterNode);
+        const starterId = starter ? starter.id : null;
+
+        // ---- helpers that are *fresh* each read ----
+        const byId = (id) => nodeMap[id] || null;
+        const incoming = (id) => incomingMap[id] || [];
+        const outgoing = (id) => outgoingMap[id] || [];
+        const creationIndex = (id) => flow.nodes.findIndex((n) => n.id === id);
+
+        const rootOf = (id) => {
+          const seen = new Set();
+          const acc = [];
+          const stack = [id];
+          while (stack.length) {
+            const cur = stack.pop();
+            if (seen.has(cur)) continue;
+            seen.add(cur);
+            const inc = incoming(cur);
+            if (!inc.length) acc.push(cur);
+            else inc.forEach((e) => stack.push(e.source));
+          }
+          if (!acc.length) return id;
+          acc.sort((a, b) => creationIndex(a) - creationIndex(b));
+          return acc[0];
+        };
+        const firstCreatedRoot = () => {
+          if (!roots.length) return null;
+          const r = [...roots];
+          r.sort((a, b) => creationIndex(a) - creationIndex(b));
+          return r[0];
+        };
+        const firstCreatedGoto = () => {
+          const gotos = flow.nodes.filter((n) => n?.data?.type === 'goto');
+          if (!gotos.length) return null;
+          gotos.sort((a, b) => creationIndex(a.id) - creationIndex(b.id));
+          return gotos[0].id;
+        };
+
+        // small expression helper: same as frontend
+        const stripSemis = (s) => (s ?? '').trim().replace(/;+\s*$/, '');
+        const toNumberIfNumeric = (v) =>
+          typeof v === 'string' && v.trim() !== '' && !isNaN(+v) ? +v : v;
+        const evalGotoExpr = (expr, input) => {
+          try {
+            const cleaned = stripSemis(expr);
+            const ninput = toNumberIfNumeric(input);
+            const fn = new Function('input', 'ninput', `return !!(${cleaned});`);
+            return !!fn(input, ninput);
+          } catch {
+            return false;
+          }
+        };
+
+        // ---- choose entry (starter > root-of-first-goto > first-root) ----
+        let entryId = starterId;
+        if (!entryId) {
+          const g = firstCreatedGoto();
+          entryId = g ? rootOf(g) : firstCreatedRoot();
         }
-        
-        const node = nodeMap[nodeId];
-        if (!node) {
-          throw new Error(`Node not found in flow: ${nodeId}`);
-        }
-        
-        // Get inputs from dependencies
-        let nodeInput = input; // Default to the flow's input
-        
-        // Special case: if this is the starter node, always use the flow's input
-        // This ensures that inputs passed to flow nodes are properly passed to starter nodes
-        if (starterNodeId && nodeId === starterNodeId) {
-          // Keep nodeInput as the flow's input
-        } else if (deps.length > 0) {
-          // For non-starter nodes, get inputs from dependencies as usual
-          // Note: non-waiting deps might not have results yet, so we use what's available
-          const depResults = deps
-            .filter(depId => !nonWaitingDeps.has(depId) || nodeResults[depId] !== undefined)
-            .map(depId => nodeResults[depId]);
-          nodeInput = depResults.length === 1 ? depResults[0] : depResults;
-        }
-        
-        // For constant nodes, just use the value directly
-        if (node.data.type === 'constant') {
-          nodeResults[nodeId] = node.data.value;
-          console.log(`Node ${node.data.label || nodeId} (${node.data.type}): ${JSON.stringify(node.data.value)}`);
-          console.log('---');
-          return node.data.value;
-        }
-        
-        // Special handling for flow nodes to ensure nested flow execution
-        if (node.data.type === 'flow') {
-          // Get the base path for resolving nested flows
-          const currentFlowPath = visited.flowPath[visited.flowPath.length - 1];
-          const currentFlowDir = path.dirname(currentFlowPath);
-          
-          // Pass the timeout value to the flow node execution
-          const flowResult = await executeFlowNode(node, nodeId, nodeInput, visited.flowPath, nodeResults, currentFlowDir, timeout);
-          // If the result is an object with output and executionTime, extract the output
-          return flowResult.output !== undefined ? flowResult.output : flowResult;
-        }
-        
-        // For other node types, create a temporary job file
-        // Check if this node has dontWaitForOutput enabled
-        if (node.data && node.data.dontWaitForOutput) {
-          // Start execution but don't wait for it to complete
-          console.log(`Node ${node.data.label || nodeId} (${node.data.type}): executing in non-blocking mode`);
-          console.log(`1 Non-blocking node will run indefinitely until manually stopped`);
-          
-          // Execute in the background without awaiting and without timeout
-          executeRegularNode(node, nodeId, nodeInput, nodeResults, false,timeout,basePath)
-            .then(result => {
-              // Store the result when it's available, but don't block execution
-              nodeResults[nodeId] = nodeInput;
-              console.log(`Non-blocking node ${node.data.label || nodeId} completed with result: ${JSON.stringify(nodeInput)}`);
-            })
-            .catch(err => {
-              console.error(`Error in non-blocking node ${nodeId}: ${err.message}`);
-            });
-          
-          // Return a placeholder result immediately
-          return { output: null, executionTime: 0, nonBlocking: true };
-        } else {
-          // For regular nodes, wait for completion
-          return await executeRegularNode(node, nodeId, nodeInput, nodeResults,true,timeout,basePath);
-        }
-      };
-      
-      // Execute the flow asynchronously
-      (async () => {
-        try {
-          const results = [];
-          for (const endNode of endNodes) {
-            if (endNode.type !== 'comment') {
-              const result = await executeNodeInFlow(endNode.id);
-              results.push(result);
+        if (!entryId) throw new Error('No valid entry point found.');
+
+        // reset goto decisions in-memory (backend version)
+        const gotoDecision = {}; // nodeId -> targetId or null
+
+        // ---- scheduler state ----
+        const nodeResults = {};             // nodeId -> output
+        const executed = new Set();         // executed this run
+        const executing = new Set();
+        const executedAt = {};              // nodeId -> monotonic tick
+        let tick = 0;
+        let lastExecutedId = null;
+        const visitCount = {};
+        const MAX_VISITS_PER_NODE = 1000;
+        const MAX_STEPS = 1000;
+
+        // ---- execution primitives ----
+        const ensureExecuted = async (nodeId, force = false) => {
+          if (executing.has(nodeId)) return;
+          //if (executed.has(nodeId) && !force) return;
+
+          const node = byId(nodeId);
+          if (!node) return;
+
+          executing.add(nodeId);
+
+          // execute predecessors (no force; their cache is fine)
+          const preds = incoming(nodeId).map((e) => e.source);
+          for (const p of preds) await ensureExecuted(p, false);
+
+          // Build inputs for this node
+          let processedInputs;
+          if (starterId && nodeId === starterId) {
+            // starter sees the flow input
+            processedInputs = flowInput;
+          } else if (preds.length) {
+            const vals = preds.map((p) => nodeResults[p]);
+            processedInputs = vals.length === 1 ? vals[0] : vals;
+          } else {
+            // true root without inputs
+            processedInputs = flowInput;
+          }
+
+          if (node?.data?.type === 'goto') {
+            // decide based on latest inputs
+            const rules = Array.isArray(node?.data?.conditions) ? node.data.conditions : [];
+            let decision = null;
+            for (const r of rules) {
+              if (r?.expr && r?.goto) {
+                if (evalGotoExpr(r.expr, processedInputs)) {
+                  decision = r.goto;
+                  break;
+                }
+              }
             }
+            gotoDecision[nodeId] = decision;
+            nodeResults[nodeId] = processedInputs; // pass-through for downstream readers
+          } else if (node?.data?.type === 'flow') {
+            // nested flow
+            const currentDir = path.dirname(flowFilePath);
+            const nested = await executeFlowNode(
+              node,
+              nodeId,
+              processedInputs,
+              currentFlowPath,
+              nodeResults,
+              currentDir,
+              timeout
+            );
+            nodeResults[nodeId] = nested?.output !== undefined ? nested.output : nested;
+          } else if (node?.data?.type === 'constant') {
+            nodeResults[nodeId] = node.data.value;
+          } else {
+            // regular node (groovy/batch/jsbackend/javascript/powershell)
+            const res = await executeRegularNode(
+              node,
+              nodeId,
+              processedInputs,
+              nodeResults,
+              true,
+              timeout,
+              basePath || path.dirname(flowFilePath)
+            );
+            nodeResults[nodeId] = res?.output !== undefined ? res.output : res;
           }
-          
-          // Restore original console methods and get logs
-          const flowLogs = restoreConsole();
-          
-          // Return the result of the last end node
-          const finalResult = results.length > 0 ? results[results.length - 1] : null;
-          console.log('\nFlow execution completed successfully.');
-          console.log(`Final result: ${JSON.stringify(finalResult.output, null, 2)}`);
-          
-          // If this is the master flow and we should shutdown after execution
-          if (isTopLevel && shouldShutdownAfterExecution) {
-            console.log('Shutting down backend as requested by -s argument...');
-            // Allow time for logs to be processed before exit
-            setTimeout(() => {
-              process.exit(0);
-            }, 500);
+          if (node?.data?.type !== 'goto') {
+            lastExecutedId = nodeId;
           }
-          
-          // Mark master flow as no longer running if this is the top level
-          if (isTopLevel) {
-            isMasterFlowRunning = false;
+          executed.add(nodeId);
+          executedAt[nodeId] = ++tick;
+          executing.delete(nodeId);
+        };
+
+        const stepTo = async (nextId, budget) => {
+          if (budget.left-- <= 0) return;
+
+          visitCount[nextId] = (visitCount[nextId] ?? 0) + 1;
+          if (visitCount[nextId] > MAX_VISITS_PER_NODE) return;
+
+          const node = byId(nextId);
+          const preds = incoming(nextId).map((e) => e.source);
+          const needsRefresh =
+            node?.data?.type === 'goto' &&
+            preds.some((p) => (executedAt[p] || 0) > (executedAt[nextId] || 0));
+
+          await ensureExecuted(nextId, needsRefresh);
+
+          const n = byId(nextId);
+          if (!n) return;
+
+          if (n?.data?.type === 'goto') {
+            const jump = gotoDecision[nextId];
+            if (jump) {
+              // force jump target so loops/branch hops re-exec
+              await ensureExecuted(jump, true);
+              await stepTo(jump, budget);
+              return;
+            }
+            // no decision: traverse normal outs
+            for (const e of outgoing(nextId)) await stepTo(e.target, budget);
+            return;
           }
-          
-          resolve(finalResult);
-        } catch (err) {
-          // Restore original console methods in case of error
-          restoreConsole();
-          console.error(`\nFlow execution failed: ${err.message}`);
-          
-          // Mark master flow as no longer running if this is the top level
-          if (isTopLevel) {
-            isMasterFlowRunning = false;
-          }
-          
-          reject(err);
+
+          // normal node: follow graphical outs
+          for (const e of outgoing(nextId)) await stepTo(e.target, budget);
+        };
+
+        // ---- run traversal ----
+        await stepTo(entryId, { left: MAX_STEPS });
+
+
+        const finalResult = lastExecutedId ? nodeResults[lastExecutedId] : null;
+
+        if (isTopLevel && shouldShutdownAfterExecution) {
+          setTimeout(() => process.exit(0), 500);
         }
-      })();
-    } catch (err) {
-      console.error(`Error processing flow: ${err.message}`);
-      reject(err);
-    }
+        if (isTopLevel) isMasterFlowRunning = false;
+
+        resolve(finalResult);
+      } catch (err) {
+        if (isTopLevel) isMasterFlowRunning = false;
+        reject(err);
+      }
+    })();
   });
 }
+
 
 /**
  * Execute a flow node (nested flow)
@@ -785,6 +772,7 @@ function processJobFile(filePath) {
     // If the path is relative and we have a basePath, resolve it
     if (!path.isAbsolute(flowFilePath) && job.basePath) {
       console.log(`Resolving relative path: ${flowFilePath} relative to ${job.basePath}`);
+      
       flowFilePath = path.resolve(job.basePath, flowFilePath);
       console.log(`Resolved to: ${flowFilePath}`);
     }
