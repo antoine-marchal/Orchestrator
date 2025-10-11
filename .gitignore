@@ -25,3 +25,5 @@ backend/testing
 *.njsproj
 *.sln
 *.sw?
+*.zip
+scriptsTest

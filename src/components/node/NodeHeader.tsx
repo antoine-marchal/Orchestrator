@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
-
+import { pathUtils } from '../../utils/pathUtils';
 interface NodeHeaderProps {
   data: NodeData;
   nodeId: string;
@@ -53,7 +53,8 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
         if (data.isRelativePath) {
           const { flowPath: rootFlowPath } = useFlowStore.getState();
           if (rootFlowPath && window.electronAPI?.getAbsolutePath) {
-            flowPath = window.electronAPI.getAbsolutePath(flowPath, rootFlowPath);
+            const baseDir = pathUtils.dirname(rootFlowPath || '');
+            flowPath = window.electronAPI.getAbsolutePath(flowPath, baseDir);
           } else if (rootFlowPath) {
             console.error("getAbsolutePath API not available");
           }

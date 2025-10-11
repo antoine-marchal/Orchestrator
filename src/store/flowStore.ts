@@ -589,7 +589,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   // Utility function to convert absolute path to relative path
   convertToRelativePath: (absolutePath: string, basePath: string) => {
     if (!absolutePath || !basePath) return absolutePath;
-    
+   
     try {
       // Use the Electron API if available
       if (window.electronAPI?.getRelativePath) {
@@ -706,12 +706,15 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           if (isAbsolutePath) {
             // Convert absolute path to relative path
             let relativePath;
+            const baseDir = pathUtils.dirname(state.flowPath || '');
             if (window.electronAPI?.getRelativePath) {
-              relativePath = window.electronAPI.getRelativePath(node.data.code, state.flowPath || '');
+              
+              relativePath = window.electronAPI.getRelativePath(node.data.code, baseDir);
+
             } else {
-              relativePath = get().convertToRelativePath(node.data.code, state.flowPath || '');
+              relativePath = get().convertToRelativePath(node.data.code, baseDir || '');
             }
-            
+           
             return {
               ...node,
               data: {
@@ -926,10 +929,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 // It's an absolute path - convert to relative for display
                 const absolutePath = node.data.code;
                 let relativePath;
+                const baseDir = pathUtils.dirname(masterFlowPath || '');
                 if (window.electronAPI?.getRelativePath) {
-                  relativePath = window.electronAPI.getRelativePath(absolutePath, masterFlowPath);
+                  relativePath = window.electronAPI.getRelativePath(absolutePath, baseDir);
                 } else {
-                  relativePath = get().convertToRelativePath(absolutePath, masterFlowPath);
+                  relativePath = get().convertToRelativePath(absolutePath, baseDir);
                 }
                 
                 return {
@@ -1266,10 +1270,11 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               const basePath = node.data.flowFilePath || state.flowPath;
               
               if (basePath) {
+                const baseDir = pathUtils.dirname(basePath || '');
                 if (window.electronAPI?.getAbsolutePath) {
-                  flowPath = window.electronAPI.getAbsolutePath(flowPath, basePath);
+                  flowPath = window.electronAPI.getAbsolutePath(flowPath, baseDir);
                 } else {
-                  flowPath = get().convertToAbsolutePath(flowPath, basePath);
+                  flowPath = get().convertToAbsolutePath(flowPath, baseDir);
                 }
               } else {
                 // If we have a relative path but no base path, we can't resolve it

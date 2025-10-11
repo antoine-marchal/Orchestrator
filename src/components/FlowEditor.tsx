@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ToolbarButton from './ToolbarButton';
 import * as path from 'path';
+import { pathUtils } from '../utils/pathUtils';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -440,7 +441,8 @@ function Flow() {
         // If the root flow has been saved, store the path relative to it
         if (flowPath) {
           const { convertToRelativePath } = useFlowStore.getState();
-          nodePath = convertToRelativePath(result.filePath, flowPath);
+          const baseDir = pathUtils.dirname(flowPath || '');
+          nodePath = convertToRelativePath(result.filePath, baseDir);
           isRelativePath = true;
         }
         
