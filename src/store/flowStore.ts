@@ -1096,7 +1096,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
     const ensureExecuted = async (nodeId: string, force = false): Promise<void> => {
       if (executing.has(nodeId)) return;
-      //if (executed.has(nodeId) && !force) return;
+      if (executed.has(nodeId) && !force) return;
   
       const node = byId(nodeId);
       if (!node) return;
@@ -1140,41 +1140,42 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   
     const stepTo = async (nextId: string, stepBudget: { left: number }) => {
       if (stepBudget.left-- <= 0) return;
-  
+    
       visitCount[nextId] = (visitCount[nextId] ?? 0) + 1;
       if (visitCount[nextId] > MAX_VISITS_PER_NODE) return;
-  
+    
       const node  = byId(nextId);
       const preds = incoming(nextId).map(e => e.source);
-      const gotoNeedsRefresh =
-        node?.data?.type === 'goto' &&
+    
+      //  refresh rule applies to ALL nodes, not just goto
+      const needsRefresh =
         preds.some(p => (executedAt[p] || 0) > (executedAt[nextId] || 0));
-  
-      await ensureExecuted(nextId, gotoNeedsRefresh);
-  
+    
+      await ensureExecuted(nextId, needsRefresh);
+    
       const n = byId(nextId);
       if (!n) return;
-  
+    
       if (n.data?.type === 'goto') {
         const decision = n.data.gotoDecision;
-  
+    
         if (decision) {
-          // re-run the jump target so we can loop/jump across branches
+          // Re-run the jump target so loops and cross-branch jumps recompute
           await ensureExecuted(decision, true);
           await stepTo(decision, stepBudget);
           return;
         }
-  
-        // default: follow graphical outs if any
+    
         const outs = outgoing(nextId);
         for (const e of outs) await stepTo(e.target, stepBudget);
         return;
       }
-  
+    
       // normal node: follow outs
       const outs = outgoing(nextId);
       for (const e of outs) await stepTo(e.target, stepBudget);
     };
+    
   
     await stepTo(entryId, { left: MAX_STEPS });
   },
