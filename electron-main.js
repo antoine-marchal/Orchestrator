@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, powerSaveBlocker, Tray, Menu } = require('electron');
+const { app, BrowserWindow, globalShortcut, powerSaveBlocker, Tray, Menu, dialog  } = require('electron');
 const path = require('path');
 const { spawn,child_process } = require('child_process');
 const kill = require('tree-kill');

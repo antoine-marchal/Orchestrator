@@ -1,8 +1,10 @@
 import React from 'react';
 import { useFlowStore } from '../store/flowStore';
 import { Terminal, X, Trash2, Maximize2, Minimize2, Clock } from 'lucide-react';
+import { useTheme } from "../context/ThemeContext";
 
 const Console: React.FC = () => {
+  const { theme } = useTheme();
   const {
     consoleMessages,
     showConsole,
@@ -65,7 +67,7 @@ const Console: React.FC = () => {
     return (
       <button
         onClick={toggleConsole}
-        className="fixed bottom-4 left-[5px] bg-gray-800 text-white p-2 rounded-full shadow-lg hover:bg-gray-700 transition-colors"
+        className="fixed bottom-4 left-[5px] bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-2 rounded-full shadow-lg hover:bg-gray-700 hover:text-white transition-colors"
       >
         <Terminal className="w-5 h-5" />
       </button>
@@ -87,7 +89,7 @@ const Console: React.FC = () => {
   return (
     <div
       className={`
-        fixed bottom-0 left-[5px] bg-gray-900 text-white shadow-lg rounded-t-lg
+        fixed bottom-0 left-[5px] bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-lg rounded-t-lg
         transition-all duration-300 z-50
         ${fullscreen
           ? 'top-0 left-0 w-screen h-screen rounded-none'
@@ -98,7 +100,7 @@ const Console: React.FC = () => {
       onMouseEnter={() => setMouseOverConsole(true)}
       onMouseLeave={() => setMouseOverConsole(false)}
     >
-      <div className="flex items-center justify-between p-2 border-b border-gray-700">
+      <div className="flex items-center justify-between p-2 border-b border-gray-300 dark:border-gray-700 ">
         <div className="flex items-center gap-2">
           <Terminal className="w-4 h-4" />
           <span className="font-medium">Console</span>
@@ -106,7 +108,7 @@ const Console: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setFullscreen()}
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-700 hover:text-white rounded"
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {fullscreen ? (
@@ -117,7 +119,7 @@ const Console: React.FC = () => {
           </button>
           <button
             onClick={clearConsole}
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-700 hover:text-white rounded"
             title="Clear console"
           >
             <Trash2 className="w-4 h-4" />
@@ -130,7 +132,7 @@ const Console: React.FC = () => {
                 setTimeoutDropdownOpen((v) => !v);
                 setLogDropdownOpen(false);
               }}
-              className="p-1 hover:bg-gray-700 rounded flex items-center"
+              className="p-1 hover:bg-gray-700  hover:text-white rounded flex items-center"
               title="Node execution timeout"
             >
               <Clock className="w-4 h-4" />
@@ -139,14 +141,14 @@ const Console: React.FC = () => {
             {timeoutDropdownOpen && (
               <div
                 ref={timeoutDropdownRef}
-                className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50"
+                className="absolute right-0 mt-2 w-36 bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-xl z-50"
               >
-                <div className="py-1 px-2 text-xs text-gray-400 border-b border-gray-700">Execution Timeout</div>
-                {[5, 30, 60, 120, 300, 600, 1200].map((seconds) => (
+                <div className="py-1 px-2 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-300 dark:border-gray-700">Execution Timeout</div>
+                {[5, 30, 60, 120, 600, 1200, Infinity].map((seconds) => (
                   <button
                     key={seconds}
-                    className={`w-full text-left px-3 py-1 hover:bg-gray-700 ${
-                      nodeExecutionTimeout === seconds * 1000 ? 'bg-gray-700' : ''
+                    className={`w-full text-left px-3 py-1 hover:bg-gray-700 hover:text-white ${
+                      nodeExecutionTimeout === seconds * 1000 ? 'bg-gray-700 text-white' : ''
                     }`}
                     onClick={() => {
                       setNodeExecutionTimeout(seconds * 1000);
@@ -166,7 +168,7 @@ const Console: React.FC = () => {
               setLogDropdownOpen((v) => !v);
               setTimeoutDropdownOpen(false);
             }}
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-700 hover:text-white rounded"
             title="Log level filter"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -174,9 +176,9 @@ const Console: React.FC = () => {
             </svg>
           </button>
           {logDropdownOpen && (
-            <div ref={logDropdownRef} className="absolute right-0 mt-2 w-36 bg-gray-800 border border-gray-700 rounded shadow-xl z-50">
+            <div ref={logDropdownRef} className="absolute right-0 mt-2 w-36 bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-xl z-50">
               {LOG_TYPES.map((item) => (
-                <label key={item.value} className="flex items-center px-3 py-1 cursor-pointer hover:bg-gray-700">
+                <label key={item.value} className="flex items-center px-3 py-1 cursor-pointer hover:bg-gray-700 hover:text-white">
                   <input
                     type="checkbox"
                     checked={visibleTypes.includes(item.value)}
@@ -192,7 +194,7 @@ const Console: React.FC = () => {
 
           <button
             onClick={toggleConsole}
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-700 hover:text-white rounded"
             title="Close console"
           >
             <X className="w-4 h-4" />
@@ -207,12 +209,12 @@ const Console: React.FC = () => {
           <div
             key={i}
             className={`mb-2 ${msg.type === 'error'
-                ? 'text-red-400'
+                ? 'text-red-600 dark:text-red-400'
                 : msg.type === 'input'
-                  ? 'text-blue-400'
+                  ? 'text-blue-600 dark:text-blue-400'
                   : msg.type === 'log'
-                    ? 'text-gray-400'
-                    : 'text-green-400'
+                    ? 'text-gray-600 dark:text-gray-400'
+                    : 'text-green-600 dark:text-green-400'
               }`}
           >
             <span className="text-gray-500">

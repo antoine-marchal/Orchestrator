@@ -109,7 +109,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   consoleMessages: [],
   showConsole: false,
   fullscreen: false,
-  nodeExecutionTimeout: 30000, // Default timeout: 30 seconds
+  nodeExecutionTimeout: Infinity, // Default timeout: Infinitys seconds
   editorModal: {
     isOpen: false,
     nodeId: null,

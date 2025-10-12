@@ -20,7 +20,7 @@ const CommentNode = ({ data, id, selected }: NodeProps) => {
 
   return (
     <div
-      className="relative border border-yellow-400 bg-yellow-100/80 dark:bg-yellow-800/70 rounded-2xl shadow-md"
+      className="relative border border-yellow-400 bg-yellow-100/80 dark:bg-yellow-800/70 rounded-lg shadow-md"
       style={{
         minWidth: 180,
         minHeight: MIN_HEIGHT,
@@ -40,18 +40,9 @@ const CommentNode = ({ data, id, selected }: NodeProps) => {
           zIndex: 20,
         }}
       />
-      <div className="flex justify-end pt-2 pr-2">
-        <button
-          onClick={() => removeNode(id)}
-          className="p-1 rounded-full hover:bg-yellow-200/60 dark:hover:bg-yellow-900"
-          tabIndex={-1}
-          title="Delete comment"
-        >
-          <Trash2 className="w-3 h-3 text-yellow-700 dark:text-yellow-200" />
-        </button>
-      </div>
+  
       {/* FLEX-1 makes this fill the remaining space */}
-      <div className="flex-1 flex flex-col px-4 pb-3">
+      <div className="flex-1 flex flex-col py-4 pb-3">
         <textarea
           className="w-full h-full flex-1 bg-transparent text-yellow-900 dark:text-yellow-100 font-medium resize-none border-none focus:ring-0 focus:outline-none"
           placeholder="Add your comment…"
@@ -61,11 +52,12 @@ const CommentNode = ({ data, id, selected }: NodeProps) => {
           onBlur={() => setEditing(false)}
           onMouseEnter={() => { updateNodeDraggable(id, false); updatePanOnDrag(false); }}
           onMouseLeave={() => { if (!editing) { updateNodeDraggable(id, true); updatePanOnDrag(true); } }}
-          rows={2}
+          rows={1}
           style={{
-            minHeight: '30px',
+            minHeight: '10px',
             height: '100%',
             maxHeight: '100%',
+            textAlign : 'center'
           }}
         />
       </div>

@@ -43,8 +43,12 @@ import {
   Redo,
   Copy,
   Clipboard,
-  CornerRightDown
+  CornerRightDown,
+  Sun,
+  Moon
 } from 'lucide-react';
+import { useTheme } from "../context/ThemeContext";
+
 import dagre from 'dagre';
 import CommentNode from './node/CommentNode';
 const nodeTypes: NodeTypes = {
@@ -681,7 +685,7 @@ function Flow() {
   const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => {
     setSelectedNodes(nodes.map(node => node.id));
   }, []);
-
+  const { theme, toggleTheme } = useTheme();
   return (
     <div className="w-full" style={{ height: 'calc(100vh)' }}>
       <ReactFlow
@@ -726,6 +730,15 @@ function Flow() {
           }}
         />
         */}
+            <div className="absolute top-4 left-4 flex items-center gap-2 z-50">
+  <button
+    onClick={toggleTheme}
+    className="p-2 rounded-full bg-gray-700 dark:bg-gray-200 text-white dark:text-black shadow hover:scale-105 transition"
+    title={theme === "dark" ? "Light mode" : "Dark mode"}
+  >
+    {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+  </button>
+</div>
        <Panel position="top-right" className="flex gap-2 flex-wrap">
         {/* File Operations Group */}
         <div className="flex gap-2 mr-2">
@@ -856,6 +869,8 @@ function Flow() {
         ))}
       </div>
     )}
+    
+
   </div>
 </Panel>
         {contextMenu && (
@@ -896,6 +911,7 @@ function Flow() {
 }
 
 export default function FlowEditor() {
+  
   return (
     <ReactFlowProvider>
       <Flow />

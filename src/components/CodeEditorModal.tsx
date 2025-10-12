@@ -3,6 +3,7 @@ import AceEditor from 'react-ace';
 import { X, FileCode, Save, ExternalLink } from 'lucide-react';
 import { useFlowStore } from '../store/flowStore';
 import { pathUtils } from '../utils/pathUtils';
+import { useTheme } from "../context/ThemeContext";
 
 // Import Ace Editor modes & themes
 import 'ace-builds/src-noconflict/mode-javascript';
@@ -26,6 +27,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
   language,
   onClose,
 }) => {
+  const { theme } = useTheme();
   const { updateNodeData, flowPath } = useFlowStore();
   const [value, setValue] = React.useState(code);
   const [isValid, setIsValid] = useState(true);
@@ -178,12 +180,13 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
   
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-      <div className="bg-gray-900 rounded-lg w-[90vw] h-[90vh] flex flex-col">
+      <div className="rounded-lg w-[90vw] h-[90vh] flex flex-col bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center">
-            <h2 className="text-xl font-semibold text-white">Edit Code</h2>
+            <h2 className="text-xl font-semibold dark:text-white light:text-black">Edit Code</h2>
             {isExternalFile && (
-              <div className="ml-3 flex items-center bg-blue-900/50 text-blue-300 px-2 py-1 rounded text-xs">
+              <div className="ml-3 flex items-center bg-blue-900/50 text-blue-100 dark:text-blue-300 px-2 py-1 rounded text-xs">
                 <ExternalLink className="w-3 h-3 mr-1" />
                 External File: {externalFilePath}
               </div>
@@ -205,7 +208,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
             <button
               onClick={handleSave}
               disabled={!isValid}
-              className={`flex items-center px-4 py-2 rounded-lg ${
+              className={`flex items-center px-3 py-1.5 rounded-lg  text-white text-sm ${
                 isValid
                   ? 'bg-blue-500 hover:bg-blue-600'
                   : 'bg-gray-600 cursor-not-allowed'
@@ -216,7 +219,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-gray-700 rounded-lg"
+              className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
             >
               <X className="w-6 h-6 text-gray-400" />
             </button>
@@ -225,7 +228,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
         <div className="flex-1 overflow-hidden">
           <AceEditor
             mode={aceMode}
-            theme="dracula"
+            theme={theme === "dark" ? "dracula" : "github"}
             name="code-editor"
             width="100%"
             height="100%"

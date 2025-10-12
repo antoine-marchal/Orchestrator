@@ -39,11 +39,6 @@ body {
   @apply hover:bg-gray-100 dark:hover:bg-gray-700;
 }
 
-/* Fix for Monaco Editor in dark mode */
-.monaco-editor .margin,
-.monaco-editor .monaco-editor-background {
-  background-color: #1f2937 !important;
-}
 
 /* Make sure the handle is always on top */
 .react-flow__handle {

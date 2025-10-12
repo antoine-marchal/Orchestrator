@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback, memo } from "react";
 import { NodeData } from '../../types/node';
 import { useFlowStore } from '../../store/flowStore';
-import { ExternalLink } from 'lucide-react';
+
 
 // Function to format execution time in seconds or minutes
 const formatExecutionTime = (timeMs: number): string => {
@@ -78,18 +78,18 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
   // Special handling for flow nodes
   if (data.type === 'flow') {
     const flowPath = data.code || '';
-    const fileName = flowPath.split(/[\\/]/).pop() || 'Unknown flow';
+
 
     return (
       <div
-        className="flex-1 overflow-hidden p-4 border-b border-gray-700"
+        className="flex-1 overflow-hidden p-4 border-b border-gray-400"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
         <div className="text-sm text-gray-400 space-y-2 relative">
-          <div className="bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
-            <div className="text-emerald-400 text-xs font-mono mb-1">Flow File:</div>
-            <div className="text-emerald-300 text-xs font-mono truncate">{flowPath}</div>
+          <div className="bg-emerald-100 dark:bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
+            <div className="text-emerald-800 dark:text-emerald-400 text-xs font-mono mb-1">Flow File:</div>
+            <div className="text-emerald-600 dark:text-emerald-300 text-xs font-mono truncate">{flowPath}</div>
           </div>
 
           {data.output !== undefined && (
@@ -97,7 +97,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
               <div
                 ref={outputRef}
                 className={
-                  "bg-gray-900 text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
+                  "bg-emerald-100 text-emerald-600 dark:bg-gray-900 dark:text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
                   (expanded ? "max-h-[80vh]" : "max-h-64") +
                   " overflow-y-auto select-text"
                 }
@@ -146,7 +146,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
                 }
               </div>
               <button
-                className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
+                className="absolute right-5 top-0 dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
                 onClick={() => {
                   setExpanded((e) => !e);
                   // Force parent component to recalculate height after expansion toggle
@@ -207,31 +207,31 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
     };
 
     return (
-      <div className="px-3 py-2 text-xs text-gray-200 space-y-2">
+      <div className="px-3 py-2 text-xs text-gray-800 dark:text-gray-200 space-y-2 flex-1 overflow-hidden p-4 border-b border-gray-400">
         <div className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
           Goto Conditions (JS)
         </div>
 
         <div className="space-y-3">
           {localConds.map((cond, i) => (
-            <div key={i} className="rounded bg-gray-800 p-2 space-y-2 border border-gray-700">
-              <label className="block text-[10px] text-gray-400">Condition</label>
+            <div key={i} className="rounded bg-gray-200 dark:bg-gray-800 p-2 space-y-2 border border-gray-400 dark:border-gray-700">
+              <label className="block text-[10px] text-gray-800 dark:text-gray-400">Condition</label>
               <input
                 value={cond.expr}
                 onChange={(e) => updateLocal(i, { expr: e.target.value })}
                 onBlur={() => commitRow(i)}
                 placeholder="e.g. input.value &lt; 50"
-                className="w-full text-xs bg-gray-900 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full text-xs bg-gray-100 dark:bg-gray-900 border border-gray-400 dark:border-gray-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
               />
 
-              <label className="block text-[10px] text-gray-400">Goto Node</label>
+              <label className="block text-[10px] text-gray-800 dark:text-gray-400">Goto Node</label>
               <select
                 value={cond.goto}
                 onChange={(e) => updateLocal(i, { goto: e.target.value })}
                 onBlur={() => commitRow(i)}
-                className="w-full text-xs bg-gray-900 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full text-xs bg-gray-100 dark:bg-gray-900 border border-gray-400 dark:border-gray-700  rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">{'(none selected)'}</option>
                 {selectableTargets.map(n => (
@@ -242,7 +242,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
               <div className="flex justify-end">
                 <button
                   onClick={() => removeCondition(i)}
-                  className="text-[10px] px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                  className="text-[10px] px-2 py-1 bg-gray-300 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 rounded"
                 >
                   Remove
                 </button>
@@ -253,7 +253,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
 
         <button
           onClick={addCondition}
-          className="text-[10px] px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+          className="text-[10px] px-2 py-1 bg-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 rounded"
         >
           + Add Condition
         </button>
@@ -264,7 +264,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
 
   return (
     <div
-      className="flex-1 overflow-hidden p-4 border-b border-gray-700"
+      className="flex-1 overflow-hidden p-4 border-b border-gray-400"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -276,7 +276,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
             <div
               ref={outputRef}
               className={
-                "bg-gray-900 text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
+                "bg-gray-200 dark:bg-gray-900 text-green-700 dark:text-green-400 text-xs p-2 font-mono whitespace-pre-wrap w-full break-words " +
                 (expanded ? "max-h-[80vh]" : "max-h-64") +
                 " overflow-y-auto select-text"
               }
@@ -325,7 +325,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
               }
             </div>
             <button
-              className="absolute right-5 top-0 bg-gray-900 rounded hover:bg-gray-800"
+              className="absolute right-5 top-0 dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
               onClick={() => {
                 setExpanded((e) => !e);
                 // Force parent component to recalculate height after expansion toggle

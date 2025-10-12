@@ -3,6 +3,7 @@ import FlowEditor from './components/FlowEditor';
 import CodeEditorModal from './components/CodeEditorModal.tsx';
 import { useFlowStore } from './store/flowStore';
 
+
 // Make TS happy with the global
 declare global {
   interface Window {
@@ -19,15 +20,13 @@ declare global {
 }
 
 function App() {
-  const { editorModal, nodes, closeEditorModal, setNodes, setEdges,setFlowPath,saveFlow,loadFlow} = useFlowStore();
+  const { editorModal, nodes, closeEditorModal, setNodes, setEdges, setFlowPath, saveFlow, loadFlow } = useFlowStore();
 
-  useEffect(() => {
-    document.documentElement.classList.add('dark');
-  }, []);
+
   useEffect(() => {
     const api = window.electronAPI;
     if (api && api.onLoadFlowJson) {
-      api.onLoadFlowJson(([filePath, data]) => {
+      api.onLoadFlowJson(([filePath, data]) => {  
         console.log(filePath);
         if (data) {
           try {
@@ -37,7 +36,7 @@ function App() {
             setFlowPath(filePath);
             // Set window title to include file path (or just filename)
             const fileName = filePath.split(/[\\/]/).pop();
-            if(fileName)api.setTitle?.(fileName);
+            if (fileName) api.setTitle?.(fileName);
           } catch (err) {
             alert('Error loading flow from file: ' + err);
           }
@@ -49,7 +48,7 @@ function App() {
     function handleShortcuts(e: KeyboardEvent) {
       // Block global shortcuts if editor modal is open
       if (editorModal.isOpen) return;
-  
+
       const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
       const isSave = (isMac && e.metaKey && e.key.toLowerCase() === 's') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 's');
       const isOpen = (isMac && e.metaKey && e.key.toLowerCase() === 'o') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 'o');
@@ -65,22 +64,23 @@ function App() {
     window.addEventListener('keydown', handleShortcuts, true);
     return () => window.removeEventListener('keydown', handleShortcuts, true);
   }, [editorModal.isOpen, saveFlow, loadFlow]);
-  
+
 
   const node = nodes.find(n => n.id === editorModal.nodeId);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <FlowEditor />
-      {editorModal.isOpen && node && (
-        <CodeEditorModal
-          nodeId={node.id}
-          code={node.data.code || ''}
-          language={node.data.language || 'javascript'}
-          onClose={closeEditorModal}
-        />
-      )}
-    </div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+
+        <FlowEditor />
+        {editorModal.isOpen && node && (
+          <CodeEditorModal
+            nodeId={node.id}
+            code={node.data.code || ''}
+            language={node.data.language || 'javascript'}
+            onClose={closeEditorModal}
+          />
+        )}
+      </div>
   );
 }
 

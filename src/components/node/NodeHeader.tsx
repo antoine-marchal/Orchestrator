@@ -78,7 +78,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
       }
   }
   return (
-    <div className="p-4 border-b border-gray-700">
+    <div className="p-4 border-b border-gray-700 dark:border-gray-300">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
 
@@ -89,7 +89,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
               case 'flow':
                 return <GitBranch className="w-5 h-5 text-emerald-500 flex-shrink-0" />;
               case 'javascript':
-                return <FileCode className="w-5 h-5 text-yellow-500 flex-shrink-0" />;
+                return <FileCode className="w-5 h-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0" />;
               case 'jsbackend':
                 return <Server className="w-5 h-5 text-blue-500 flex-shrink-0" />;
               case 'groovy':
@@ -99,7 +99,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
               case 'powershell':
                 return <TerminalSquare className="w-5 h-5 text-blue-400 flex-shrink-0" />;
               case 'goto':
-                return <CornerRightDown className="w-5 h-5 text-yellow-400 flex-shrink-0" />;   
+                return <CornerRightDown className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />;   
               case 'comment':
                 return <MessageSquare className="w-5 h-5 text-gray-500 flex-shrink-0" />;
               default:
@@ -126,13 +126,13 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
               updateNodeDraggable(nodeId, true);
               updatePanOnDrag(true);
             }}
-            className="font-semibold text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full"
+            className="font-semibold text-black dark:text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 w-full"
           />
         </div>
         <div className="flex items-center gap-2">
           {data.type !== 'constant' && data.type !== 'flow' && data.type !== 'goto' && (
             <button
-              className="p-1 hover:bg-gray-700 rounded"
+              className="p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
               onClick={() => openEditorModal(nodeId)}
             >
               <Edit2 className="w-4 h-4 text-blue-500" />
@@ -140,7 +140,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type === 'flow' && (
             <button
-              className="p-1 hover:bg-gray-700 rounded"
+              className="p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
               onClick={() => openFlowNodeInNewWindow()}
             >
               <Edit2 className="w-4 h-4 text-blue-500" />
@@ -148,7 +148,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type !== 'goto' && (
           <button
-            className={`p-1 hover:bg-gray-700 rounded ${isNodeExecuting ? 'cursor-not-allowed opacity-50' : ''}`}
+            className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${isNodeExecuting ? 'cursor-not-allowed opacity-50' : ''}`}
             onClick={onExecute}
             title={isNodeExecuting ? "Node is already running" : "Execute node"}
           >
@@ -157,7 +157,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type !== 'goto' && (
           <button
-            className={`p-1 hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-700' : ''}`}
+            className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-700' : ''}`}
             onClick={() => setStarterNode(nodeId)}
             title={data.isStarterNode ? "Unset as starter node" : "Set as starter node"}
           >
@@ -167,7 +167,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           {/* Stop button (shown when node is executing) */}
           {data.type !== 'goto' && isNodeExecuting && (
             <button
-              className="p-1 hover:bg-gray-700 rounded"
+              className="p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
               onClick={() => stopNodeExecution(nodeId)}
               title="Stop execution"
             >
@@ -176,7 +176,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type !== 'goto' && !isNodeExecuting && (
             <button
-              className={`p-1 hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-700' : ''}`}
+              className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-700' : ''}`}
               onClick={() => toggleDontWaitForOutput(nodeId)}
               title={hasDontWaitForOutput ? "Wait for output (currently set to don't wait)" : "Don't wait for output"}
             >
@@ -185,13 +185,13 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {isNodeExecuting ? (
           <button
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
           >
             <Trash2 className="w-4 h-4 text-red-500" />
           </button>
            ) : (
             <button
-            className="p-1 hover:bg-gray-700 rounded"
+            className="p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
             onClick={onDelete}
           >
             <Trash2 className="w-4 h-4 text-red-500" />
@@ -205,7 +205,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           type="text"
           value={data.value || ''}
           onChange={(e) => onValueChange(e.target.value)}
-          className="mt-2 text-base bg-gray-700 border-none rounded px-2 py-1 text-white w-full font-mono"
+          className="mt-2 text-base bg-gray-200 dark:bg-gray-700 border-none rounded px-2 py-1 text-black dark:text-white w-full font-mono"
           placeholder="Value…"
           onFocus={(e) => {
             e.target.select();

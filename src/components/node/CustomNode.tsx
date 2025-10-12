@@ -55,7 +55,7 @@ const CustomNode = ({ data, id, selected }: NodeProps) => {
   }, [outputClearCounter]);
   return (
     <div
-      className={`relative ${data.type === 'flow' ? 'bg-emerald-900' : 'bg-gray-800'} rounded-lg ${
+      className={`relative ${data.type === 'flow' ? 'bg-emerald-300 dark:bg-emerald-900' : 'bg-gray-300 dark:bg-gray-800'} rounded-lg ${
         selected
           ? data.type === 'flow'
             ? 'ring-2 ring-emerald-500'

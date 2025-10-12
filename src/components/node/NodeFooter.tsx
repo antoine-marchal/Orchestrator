@@ -49,7 +49,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
                   e.stopPropagation();
                   removeConnection(edge.id);
                 }}
-                className="p-0.5 hover:bg-gray-700 rounded"
+                className="p-0.5 hover:bg-gray-400 dark:hover:bg-gray-700 rounded"
               >
                 <X className="w-3 h-3 text-red-400" />
               </button>
@@ -61,10 +61,10 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
                   }}
                   disabled={index === 0}
                   className={`p-0.5 rounded ${
-                    index === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-gray-700'
+                    index === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-gray-400 dark:hover:bg-gray-700'
                   }`}
                 >
-                  <ChevronUp className="w-3 h-3 text-gray-400" />
+                  <ChevronUp className="w-3 h-3 text-gray-600 dark:text-gray-400" />
                 </button>
                 <button
                   onClick={(e) => {
@@ -73,15 +73,15 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
                   }}
                   disabled={index === edges.length - 1}
                   className={`p-0.5 rounded ${
-                    index === edges.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-gray-700'
+                    index === edges.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-gray-400 dark:hover:bg-gray-700'
                   }`}
                 >
-                  <ChevronDown className="w-3 h-3 text-gray-400" />
+                  <ChevronDown className="w-3 h-3 text-gray-600 dark:text-gray-400" />
                 </button>
               </div>
             </>
           )}
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-gray-600 dark:text-gray-400">
             {type === 'input' ? 'From ' : 'To '}
             {getNodeLabel(type === 'input' ? edge.source : edge.target)}
           </span>
@@ -94,7 +94,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
                   e.stopPropagation();
                   removeConnection(edge.id);
                 }}
-                className="p-0.5 hover:bg-gray-700 rounded z-50 relative"
+                className="p-0.5 hover:bg-gray-400 dark:hover:bg-gray-700 rounded z-50 relative"
               >
                 <X className="w-3 h-3 text-red-400" />
               </button>
@@ -124,7 +124,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
               <Handle
                 type="target"
                 position={Position.Left}
-                className={`w-3 h-3 ${type === 'flow' ? '!bg-emerald-500' : '!bg-blue-500'}`}
+                className={`w-3 h-3 !bg-blue-500`}
                 style={{ zIndex: 1 }}
               />
               <div className="ml-6"  >
@@ -145,7 +145,7 @@ export const NodeFooter: React.FC<NodeFooterProps> = ({
             <Handle
               type="source"
               position={Position.Right}
-              className={`w-3 h-3 ${type === 'flow' ? '!bg-emerald-400' : '!bg-green-500'}`}
+              className={`w-3 h-3 !bg-green-500`}
               style={{ zIndex: 1 }}
             />
             <div className="mr-6 text-right">
