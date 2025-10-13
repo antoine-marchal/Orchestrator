@@ -1380,7 +1380,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             }
           }
 
-          addLog('log', `Loading flow from: ${flowPath}`);
+          
 
           // Find input nodes and sort them by connection order
           const inputEdges = state.edges.filter(e => e.target === nodeId);
@@ -1413,9 +1413,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             flowFilePath: flowPath
           };
           
-          addLog('log',pathUtils.dirname(flowPath));
-          addLog('log', `Executing flow: ${flowPath.split(/[\\/]/).pop()}`);
-
+          addLog('log', `Executing flow: ${flowPath}`);
           // Call the backend API to execute the flow
           const resultData = await (window as any).backendAPI.executeNodeJob(payload);
 

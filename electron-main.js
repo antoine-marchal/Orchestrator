@@ -475,6 +475,7 @@ app.whenReady().then(() => {
         
         // Exit the application after execution
         console.log('Flow execution completed. Exiting...');
+        console.log('============ RESULT ================');
         console.log(result);
         await forceQuit(0);
       } catch (error) {

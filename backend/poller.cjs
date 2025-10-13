@@ -88,7 +88,7 @@ function cleanupStopSignal(jobId) {
         console.error(`Error cleaning up stop signal for job ${jobId}:`, err);
       }
     } else {
-      console.log(`No stop signal file found for job ${jobId}`);
+      //console.log(`No stop signal file found for job ${jobId}`);
     }
   } catch (err) {
     // Catch any unexpected errors in the function itself
@@ -520,7 +520,7 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
  * @param {boolean} [waitForResult=true] - Whether to wait for the result before resolving
  * @returns {Promise<any>} - The result of the node execution
  */
-async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 60000 * 60 * 8, jobBasePath) {
+async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 0, jobBasePath) {
 
   // Create a temporary job file
   const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -534,7 +534,7 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     basePath: jobBasePath,
     timeout: timeout
   };
-  console.log('Job base path is :', jobBasePath);
+  //console.log('Job base path is :', jobBasePath);
   console.log(`Executing node ${node.data.label || nodeId} (${node.data.type}) with input: ${JSON.stringify(nodeInput)}`);
   // Start execution time tracking
   const startTime = Date.now();
@@ -683,7 +683,7 @@ function processJobFile(filePath) {
   // Update the job object with the loaded code
   job.code = code || '';
 
-  console.log(`Processing job file: ${filePath} with the timeout ${job.timeout / 1000} seconds`);
+  //console.log(`Processing job file: ${filePath} with the timeout ${job.timeout / 1000} seconds`);
   // Check if there's already a result file for this job ID
   // This could happen if the frontend tries to execute the same node multiple times
   const existingResultPath = path.join(OUTBOX, `${id}.result.json`);

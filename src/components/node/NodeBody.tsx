@@ -81,17 +81,30 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
 
 
     return (
+
       <div
         className="flex-1 overflow-hidden p-4 border-b border-gray-400"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
+              <div className="text-[10px] uppercase tracking-wider text-emerald-800 dark:text-emerald-400 font-medium">
+      Flow File
+    </div>
         <div className="text-sm text-gray-400 space-y-2 relative">
           <div className="bg-emerald-100 dark:bg-emerald-900/30 rounded p-2 border border-emerald-700/30">
-            <div className="text-emerald-800 dark:text-emerald-400 text-xs font-mono mb-1">Flow File:</div>
             <div className="text-emerald-600 dark:text-emerald-300 text-xs font-mono truncate">{flowPath}</div>
           </div>
-
+          <div className="text-[10px] uppercase tracking-wider text-emerald-800 dark:text-emerald-400 font-medium">
+          {data.executionTime !== undefined ? (
+                  <>
+                    Output ({formatExecutionTime(data.executionTime)}): <br />
+                  </>
+                ) : (
+                  <>
+                    Output: <br />
+                  </>
+                )}
+    </div>
           {data.output !== undefined && (
             <>
               <div
@@ -126,15 +139,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
                   div.scrollTop += e.deltaY;
                 }}
               >
-                {data.executionTime !== undefined ? (
-                  <>
-                    Output ({formatExecutionTime(data.executionTime)}): <br />
-                  </>
-                ) : (
-                  <>
-                    Output: <br />
-                  </>
-                )}
+                
                 {/* For flow nodes, only display the output property if it exists */}
                 {typeof data.output === 'object' && data.output !== null && 'output' in data.output
                   ? typeof data.output.output === 'string'
@@ -146,7 +151,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
                 }
               </div>
               <button
-                className="absolute right-5 top-0 dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
+                className="absolute right-5 top-[66px] dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
                 onClick={() => {
                   setExpanded((e) => !e);
                   // Force parent component to recalculate height after expansion toggle
@@ -273,6 +278,17 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
 
         {data.output !== undefined && (
           <>
+          <div className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
+          {data.executionTime !== undefined ? (
+                <>
+                  Output ({formatExecutionTime(data.executionTime)}) <br />
+                </>
+              ) : (
+                <>
+                  Output <br />
+                </>
+              )}
+        </div>
             <div
               ref={outputRef}
               className={
@@ -305,15 +321,8 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
                 div.scrollTop += e.deltaY;
               }}
             >
-              {data.executionTime !== undefined ? (
-                <>
-                  Output ({formatExecutionTime(data.executionTime)}): <br />
-                </>
-              ) : (
-                <>
-                  Output: <br />
-                </>
-              )}
+              
+             
               {/* For regular nodes, display output in the same way as flow nodes */}
               {typeof data.output === 'object' && data.output !== null && 'output' in data.output
                 ? typeof data.output.output === 'string'
@@ -325,7 +334,7 @@ export const NodeBody: React.FC<NodeBodyProps> = memo(({
               }
             </div>
             <button
-              className="absolute right-5 top-0 dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
+              className="absolute right-5 top-6 dark:bg-gray-900 rounded hover:bg-gray-300 dark:hover:bg-gray-800"
               onClick={() => {
                 setExpanded((e) => !e);
                 // Force parent component to recalculate height after expansion toggle

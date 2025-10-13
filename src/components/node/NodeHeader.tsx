@@ -157,7 +157,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type !== 'goto' && (
           <button
-            className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-700' : ''}`}
+            className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${data.isStarterNode ? 'bg-gray-400 dark:bg-gray-700' : ''}`}
             onClick={() => setStarterNode(nodeId)}
             title={data.isStarterNode ? "Unset as starter node" : "Set as starter node"}
           >
@@ -176,7 +176,7 @@ export const NodeHeader: React.FC<NodeHeaderProps> = ({
           )}
           {data.type !== 'goto' && !isNodeExecuting && (
             <button
-              className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-700' : ''}`}
+              className={`p-1 hover:bg-gray-400 dark:hover:bg-gray-700 rounded ${hasDontWaitForOutput ? 'bg-gray-400 dark:bg-gray-700' : ''}`}
               onClick={() => toggleDontWaitForOutput(nodeId)}
               title={hasDontWaitForOutput ? "Wait for output (currently set to don't wait)" : "Don't wait for output"}
             >

@@ -7,12 +7,7 @@
   --text-color: #1e293b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-color: #0f172a;
-    --text-color: #f8fafc;
-  }
-}
+
 
 body {
   background-color: var(--bg-color);
