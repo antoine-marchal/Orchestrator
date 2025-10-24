@@ -1,614 +1,416 @@
-const fs = require("fs");
-const path = require("path");
-
+#!/usr/bin/env node
 /**
- * Airflow DAG Generator for Orchestrator Flow Files
- * 
- * This module converts .or flow files to Apache Airflow DAG Python scripts.
- * It can be used both as a command-line tool and as a library.
+ * airflow.cjs — fixed
+ * Generate an Airflow 3.1.0 DAG (Python) from a .or flow, expanding nested flows.
+ * Usage:
+ *   node airflow.cjs --flow path/to/flow.or --out path/to/dag.py --dag-id my_dag
  */
 
-// Constants
-const DEFAULT_AIRFLOW_ARGS = {
-  owner: 'orchestrator',
-  depends_on_past: false,
-  email_on_failure: false,
-  email_on_retry: false,
-  retries: 1,
-  retry_delay: 'timedelta(minutes=5)',
-};
+const fs = require('fs');
+const path = require('path');
 
-/**
- * Parse a flow file and prepare it for conversion
- * @param {string} flowFilePath - Path to the flow file
- * @returns {Object} Parsed flow with node maps and dependency information
- */
-function parseFlowFile(flowFilePath) {
-  // Check if the flow file exists
-  if (!fs.existsSync(flowFilePath)) {
-    throw new Error(`Flow file not found: ${flowFilePath}`);
-  }
+function fail(msg, code = 1) { console.error(msg); process.exit(code); }
 
-  // Read and parse the flow file
-  const flowContent = fs.readFileSync(flowFilePath, 'utf8');
-  const flow = JSON.parse(flowContent);
-  
-  if (!flow.nodes || !Array.isArray(flow.nodes) || !flow.edges || !Array.isArray(flow.edges)) {
-    throw new Error('Invalid flow file format: missing nodes or edges array');
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--flow') args.flow = argv[++i];
+    else if (a === '--out') args.out = argv[++i];
+    else if (a === '--dag-id') args.dagId = argv[++i];
+    else if (a === '--start-date') args.startDate = argv[++i];
+    else if (a === '--schedule') args.schedule = argv[++i];
+    else if (a === '--owner') args.owner = argv[++i];
+    else if (a === '--description') args.description = argv[++i];
+    else if (a === '--tags') args.tags = argv[++i];
+    else if (a === '--default-pool') args.defaultPool = argv[++i];
   }
-  
-  // Create a map of node IDs to nodes for easy lookup
-  const nodeMap = {};
-  flow.nodes.forEach(node => {
-    nodeMap[node.id] = node;
-  });
-  
-  // Create a map of dependencies (which nodes depend on which)
-  const dependencies = {};
-  flow.edges.forEach(edge => {
-    if (!dependencies[edge.target]) {
-      dependencies[edge.target] = [];
-    }
-    dependencies[edge.target].push(edge.source);
-  });
-  
-  // Create a map of children (which nodes are downstream of which)
-  const children = {};
-  flow.edges.forEach(edge => {
-    if (!children[edge.source]) {
-      children[edge.source] = [];
-    }
-    children[edge.source].push(edge.target);
-  });
-  
-  // Find nodes with no incoming edges (start nodes)
-  const startNodes = flow.nodes.filter(node =>
-    !flow.edges.some(edge => edge.target === node.id) && 
-    node.type !== 'comment' // Exclude comment nodes
-  );
-  
-  // Find nodes with no outgoing edges (end nodes)
-  const endNodes = flow.nodes.filter(node =>
-    !flow.edges.some(edge => edge.source === node.id) &&
-    node.type !== 'comment' // Exclude comment nodes
-  );
-  
-  if (startNodes.length === 0) {
-    throw new Error('Invalid flow: no start nodes found');
+  if (!args.flow) fail('Missing --flow');
+  if (!args.out) fail('Missing --out');
+  if (!args.dagId) {
+    const base = path.basename(args.flow).replace(/\.[^.]+$/, '');
+    args.dagId = slugify(`dag_${base}`);
   }
-  
-  if (endNodes.length === 0) {
-    throw new Error('Invalid flow: no end nodes found');
-  }
+  return args;
+}
 
-  return {
-    flow,
-    nodeMap,
-    dependencies,
-    children,
-    startNodes,
-    endNodes
+function slugify(s) {
+  return String(s)
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')   // remove non word/space/hyphen
+    .replace(/\s+/g, '_')       // spaces -> _
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+}
+
+/** Python-safe identifier (no dashes, no spaces, ascii, no leading digit) */
+function pyIdent(s, prefix='id') {
+  let t = String(s).normalize('NFKD').replace(/[^\w\s-]/g, '').replace(/[\s-]+/g, '_');
+  if (!t) t = prefix;
+  if (/^\d/.test(t)) t = `${prefix}_${t}`;
+  return t.toLowerCase();
+}
+
+function readJson(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch (e) { fail(`Failed to read/parse JSON: ${p}\n${e.stack || e}`); }
+}
+
+function ensureUniqueTaskId(base, exists) {
+  let id = slugify(base);
+  if (!exists.has(id)) { exists.add(id); return id; }
+  let i = 2;
+  while (exists.has(`${id}_${i}`)) i++;
+  const finalId = `${id}_${i}`; exists.add(finalId); return finalId;
+}
+
+/** Flatten flow and inline nested flows */
+function flattenFlow(entryPath, flowJson, seen = new Set(), prefix = '') {
+  const baseDir = path.dirname(entryPath);
+  const nodes = [];
+  const edges = [];
+
+  const idMap = new Map(); // original id -> fullId
+
+  const addNode = (n, labelPrefix) => {
+    const label = (n?.data?.label ?? 'node').toString();
+    const labelPath = labelPrefix ? `${labelPrefix}__${label}` : label;
+    const fullId = `${prefix}${n.id}`;
+    nodes.push({ ...n, fullId, labelPath });
+    idMap.set(n.id, fullId);
   };
-}
+  const addEdge = (e) => edges.push({ ...e, source: idMap.get(e.source), target: idMap.get(e.target) });
 
-/**
- * Generate a valid Python identifier from a string
- * @param {string} str - Input string
- * @returns {string} Valid Python identifier
- */
-function toPythonIdentifier(str) {
-  if (!str) return 'task';
-  
-  // Replace non-alphanumeric characters with underscores
-  let identifier = str.replace(/[^a-zA-Z0-9_]/g, '_');
-  
-  // Ensure it starts with a letter or underscore
-  if (!/^[a-zA-Z_]/.test(identifier)) {
-    identifier = 'task_' + identifier;
-  }
-  
-  return identifier.toLowerCase();
-}
+  for (const n of (flowJson.nodes || [])) addNode(n, prefix ? prefix.replace(/__$/, '') : '');
+  for (const e of (flowJson.edges || [])) addEdge(e);
 
-/**
- * Extract code from a node, either from embedded code or external file
- * @param {Object} node - Node object
- * @param {string} basePath - Base path for resolving relative file paths
- * @returns {string} Extracted code
- */
-function extractNodeCode(node, basePath) {
-  if (!node.data) {
-    return '';
-  }
-  
-  if (node.data.code) {
-    return node.data.code;
-  }
-  
-  if (node.data.codeFilePath) {
-    let codePath = node.data.codeFilePath;
-    
-    // Resolve relative paths
-    if (!path.isAbsolute(codePath) && basePath) {
-      codePath = path.resolve(basePath, codePath);
+  const flowNodes = nodes.filter(n => n?.data?.type === 'flow');
+  for (const fn of flowNodes) {
+    let subPath = fn?.data?.code;
+    if (!subPath) continue;
+    if (fn?.data?.isRelativePath !== false) subPath = path.resolve(baseDir, subPath);
+    if (!fs.existsSync(subPath)) fail(`Nested flow not found: ${subPath}`);
+    const key = path.resolve(subPath);
+    if (seen.has(key)) fail(`Cycle detected with nested flow: ${key}`);
+    seen.add(key);
+
+    const subJson = readJson(subPath);
+    const sub = flattenFlow(subPath, subJson, seen, fn.labelPath + '__');
+
+    // compute upstream/downstream of fn
+    const up = edges.filter(e => e.target === fn.fullId).map(e => e.source);
+    const down = edges.filter(e => e.source === fn.fullId).map(e => e.target);
+
+    // remove fn and edges touching it
+    const keepNodes = nodes.filter(n => n.fullId !== fn.fullId);
+    const keepEdges = edges.filter(e => e.source !== fn.fullId && e.target !== fn.fullId);
+    nodes.length = 0; nodes.push(...keepNodes);
+    edges.length = 0; edges.push(...keepEdges);
+
+    // merge subflow, remap ids to avoid collisions
+    const subRemap = new Map();
+    for (const sn of sub.nodes) {
+      const newFullId = `${sn.fullId}#${path.basename(subPath)}`;
+      subRemap.set(sn.fullId, newFullId);
+      nodes.push({ ...sn, fullId: newFullId });
     }
-    
-    if (fs.existsSync(codePath)) {
-      return fs.readFileSync(codePath, 'utf8');
+    for (const se of sub.edges) {
+      edges.push({ ...se, source: subRemap.get(se.source), target: subRemap.get(se.target) });
+    }
+
+    // starters/leaves of subflow (within current edges set)
+    const subNodeSet = new Set([...subRemap.values()]);
+    const hasIncoming = new Set(edges.filter(e => subNodeSet.has(e.target)).map(e => e.target));
+    const hasOutgoing = new Set(edges.filter(e => subNodeSet.has(e.source)).map(e => e.source));
+    const starters = [...subNodeSet].filter(id => ![...edges].some(e => e.target === id && subNodeSet.has(e.source)));
+    const leaves = [...subNodeSet].filter(id => ![...edges].some(e => e.source === id && subNodeSet.has(e.target)));
+
+    if (starters.length === 0) {
+      // degenerate: connect upstream directly to downstream
+      for (const u of up) for (const d of down) edges.push({ source: u, target: d });
     } else {
-      console.warn(`Code file not found: ${codePath}`);
-      return '';
+      for (const u of up) for (const s of starters) edges.push({ source: u, target: s });
+      for (const l of leaves) for (const d of down) edges.push({ source: l, target: d });
     }
+    seen.delete(key);
   }
-  
-  return '';
+
+  return { nodes, edges };
 }
 
-/**
- * Convert JS code to Python code for use in PythonOperator
- * This is a simple conversion and may need manual adjustment
- * @param {string} jsCode - JavaScript code
- * @returns {string} Python equivalent code (best effort)
- */
-function convertJsToPython(jsCode) {
-  // This is a very basic conversion - in a real implementation,
-  // you might want to use a proper JS-to-Python transpiler
-  // or encourage users to provide Python equivalents
-  
-  let pyCode = jsCode
-    // Convert console.log to print
-    .replace(/console\.log\(/g, 'print(')
-    // Convert function declarations
-    .replace(/function\s+(\w+)\s*\((.*?)\)\s*{/g, 'def $1($2):')
-    // Convert arrow functions (simple cases)
-    .replace(/\((.*?)\)\s*=>\s*{/g, 'lambda $1:')
-    // Convert let/const/var to Python variables
-    .replace(/(?:let|const|var)\s+(\w+)\s*=/g, '$1 =')
-    // Convert if statements
-    .replace(/if\s*\((.*?)\)\s*{/g, 'if $1:')
-    // Convert else if
-    .replace(/}\s*else\s*if\s*\((.*?)\)\s*{/g, 'elif $1:')
-    // Convert else
-    .replace(/}\s*else\s*{/g, 'else:')
-    // Convert for loops (simple cases)
-    .replace(/for\s*\(let\s+(\w+)\s*=\s*(\d+);\s*\1\s*<\s*(\w+);\s*\1\+\+\)\s*{/g, 'for $1 in range($2, $3):');
-  
-  // Add a note about the conversion
-  pyCode = '# Converted from JavaScript - may need manual adjustments\n' + pyCode;
-  
-  return pyCode;
+function buildGraph(nodes, edges) {
+  const byId = new Map(nodes.map(n => [n.fullId, n]));
+  const inAdj = new Map([...byId.keys()].map(k => [k, []]));
+  const outAdj = new Map([...byId.keys()].map(k => [k, []]));
+  for (const e of edges) {
+    if (!byId.has(e.source) || !byId.has(e.target)) continue;
+    outAdj.get(e.source).push(e.target);
+    inAdj.get(e.target).push(e.source);
+  }
+  return { byId, inAdj, outAdj };
 }
 
-/**
- * Generate Airflow operator code for a node
- * @param {Object} node - Node object
- * @param {string} nodeId - Node ID
- * @param {string} basePath - Base path for resolving relative file paths
- * @returns {string} Airflow operator code
- */
-function generateOperatorForNode(node, nodeId, basePath) {
-  if (!node || !node.data) {
-    return `# Empty node ${nodeId}\n${toPythonIdentifier(nodeId)} = DummyOperator(task_id='${nodeId}')\n`;
-  }
-  
-  const taskId = nodeId;
-  const taskName = toPythonIdentifier(node.data.label || nodeId);
-  
-  switch (node.data.type) {
-    case 'constant': {
-      // For constant nodes, use a PythonOperator that returns the constant value
-      const value = JSON.stringify(node.data.value);
-      return `
-# Constant node: ${node.data.label || nodeId}
-def return_constant_${taskName}(**kwargs):
-    return ${value}
-
-${taskName} = PythonOperator(
-    task_id='${taskId}',
-    python_callable=return_constant_${taskName},
-    provide_context=True,
-    do_xcom_push=True
-)
-`;
-    }
-    
-    case 'js': {
-      // For JS nodes, convert to PythonOperator
-      const code = extractNodeCode(node, basePath);
-      const pythonCode = convertJsToPython(code);
-      
-      return `
-# JS node: ${node.data.label || nodeId}
-def execute_${taskName}(**kwargs):
-    # Get input from upstream tasks via XCom
-    ti = kwargs['ti']
-    # Assuming single upstream task for simplicity
-    # In a real implementation, you'd need to handle multiple upstream tasks
-    upstream_tasks = kwargs.get('upstream_task_ids', [])
-    input_data = None
-    if upstream_tasks:
-        input_data = ti.xcom_pull(task_ids=upstream_tasks[0])
-    
-${pythonCode.split('\n').map(line => '    ' + line).join('\n')}
-    
-    # Return the result for downstream tasks
-    return output
-
-${taskName} = PythonOperator(
-    task_id='${taskId}',
-    python_callable=execute_${taskName},
-    provide_context=True,
-    op_kwargs={'upstream_task_ids': []},  # Will be populated later
-    do_xcom_push=True
-)
-`;
-    }
-    
-    case 'jsbackend': {
-      // For jsbackend nodes, use BashOperator to run Node.js
-      const code = extractNodeCode(node, basePath);
-      // Escape single quotes in the code
-      const escapedCode = code.replace(/'/g, "\\'");
-      
-      return `
-# JS Backend node: ${node.data.label || nodeId}
-${taskName}_code = '''
-${escapedCode}
-'''
-
-# Write the code to a temporary file
-${taskName}_file = '/tmp/airflow_${taskName}.js'
-with open(${taskName}_file, 'w') as f:
-    f.write(${taskName}_code)
-
-${taskName} = BashOperator(
-    task_id='${taskId}',
-    bash_command=f'node {${taskName}_file}',
-    env={
-        'INPUT': "{{ ti.xcom_pull(task_ids='UPSTREAM_TASK_ID') }}"  # Will be replaced later
-    },
-    do_xcom_push=True
-)
-`;
-    }
-    
-    case 'flow': {
-      // For flow nodes, use SubDagOperator or reference another DAG
-      const flowPath = node.data.codeFilePath || node.data.code || '';
-      
-      return `
-# Flow node: ${node.data.label || nodeId}
-# This references another flow file: ${flowPath}
-# In a real implementation, you would either:
-# 1. Create a SubDagOperator that runs a nested DAG
-# 2. Create a separate DAG file and use ExternalTaskSensor
-
-# Option 1: Using SubDagOperator
-def subdag_${taskName}(parent_dag_id, child_dag_id, args):
-    dag = DAG(
-        dag_id=f'{parent_dag_id}.{child_dag_id}',
-        default_args=args,
-        schedule_interval=None,
-    )
-    
-    # Here you would generate the tasks for the nested flow
-    # For now, we'll just create a dummy task
-    dummy_task = DummyOperator(
-        task_id='dummy_in_subdag',
-        dag=dag,
-    )
-    
-    return dag
-
-${taskName} = SubDagOperator(
-    task_id='${taskId}',
-    subdag=subdag_${taskName}(dag.dag_id, '${taskId}', default_args),
-    dag=dag,
-)
-
-# Option 2: Reference to another DAG file
-# ${taskName} = ExternalTaskSensor(
-#     task_id='wait_for_${taskId}',
-#     external_dag_id='${path.basename(flowPath, '.or')}',
-#     external_task_id=None,  # Wait for the entire DAG to complete
-#     dag=dag,
-# )
-`;
-    }
-    
-    case 'batch': {
-      // For batch nodes, use BashOperator
-      const code = extractNodeCode(node, basePath);
-      // Escape single quotes in the code
-      const escapedCode = code.replace(/'/g, "\\'");
-      
-      return `
-# Batch node: ${node.data.label || nodeId}
-${taskName}_code = '''
-${escapedCode}
-'''
-
-# Write the code to a temporary file
-${taskName}_file = '/tmp/airflow_${taskName}.bat'
-with open(${taskName}_file, 'w') as f:
-    f.write(${taskName}_code)
-
-${taskName} = BashOperator(
-    task_id='${taskId}',
-    bash_command=f'cmd /C {${taskName}_file}',
-    env={
-        'INPUT': "{{ ti.xcom_pull(task_ids='UPSTREAM_TASK_ID') }}"  # Will be replaced later
-    },
-    do_xcom_push=True
-)
-`;
-    }
-    
-    case 'powershell': {
-      // For PowerShell nodes, use BashOperator with powershell command
-      const code = extractNodeCode(node, basePath);
-      // Escape single quotes in the code
-      const escapedCode = code.replace(/'/g, "\\'");
-      
-      return `
-# PowerShell node: ${node.data.label || nodeId}
-${taskName}_code = '''
-${escapedCode}
-'''
-
-# Write the code to a temporary file
-${taskName}_file = '/tmp/airflow_${taskName}.ps1'
-with open(${taskName}_file, 'w') as f:
-    f.write(${taskName}_code)
-
-${taskName} = BashOperator(
-    task_id='${taskId}',
-    bash_command=f'powershell -ExecutionPolicy Bypass -File {${taskName}_file}',
-    env={
-        'INPUT': "{{ ti.xcom_pull(task_ids='UPSTREAM_TASK_ID') }}"  # Will be replaced later
-    },
-    do_xcom_push=True
-)
-`;
-    }
-    
-    case 'groovy': {
-      // For Groovy nodes, use BashOperator with java -jar command
-      const code = extractNodeCode(node, basePath);
-      // Escape single quotes in the code
-      const escapedCode = code.replace(/'/g, "\\'");
-      
-      return `
-# Groovy node: ${node.data.label || nodeId}
-${taskName}_code = '''
-${escapedCode}
-'''
-
-# Write the code to a temporary file
-${taskName}_file = '/tmp/airflow_${taskName}.groovy'
-with open(${taskName}_file, 'w') as f:
-    f.write(${taskName}_code)
-
-${taskName} = BashOperator(
-    task_id='${taskId}',
-    bash_command=f'java -jar /path/to/groovyExec.jar {${taskName}_file}',  # Path needs to be configured
-    env={
-        'INPUT': "{{ ti.xcom_pull(task_ids='UPSTREAM_TASK_ID') }}"  # Will be replaced later
-    },
-    do_xcom_push=True
-)
-`;
-    }
-    
-    default:
-      // For unknown node types, use DummyOperator
-      return `
-# Unknown node type (${node.data.type}): ${node.data.label || nodeId}
-${taskName} = DummyOperator(
-    task_id='${taskId}'
-)
-`;
-  }
+function pythonTripleQuoted(s) {
+  return String(s).replace(/"""/g, '\\"""');
 }
 
-/**
- * Generate Airflow DAG Python code from a parsed flow
- * @param {Object} parsedFlow - Parsed flow object
- * @param {string} dagId - DAG ID
- * @param {string} basePath - Base path for resolving relative file paths
- * @returns {string} Airflow DAG Python code
- */
-function generateAirflowDag(parsedFlow, dagId, basePath) {
-  const { flow, nodeMap, dependencies, children } = parsedFlow;
-  
-  // Start with imports and DAG definition
-  let code = `
-# Generated by Orchestrator Airflow Converter
-# Original flow file: ${dagId}
+function generateDagPython({
+  dagId,
+  description = '',
+  schedule = 'None',
+  startDate = null,
+  owner = 'airflow',
+  tags = [],
+  defaultPool = null,
+  nodes,
+  edges
+}) {
+  const { byId, inAdj } = buildGraph(nodes, edges);
 
+  // task_id (Airflow) uniqueness from label; Python identifiers safe
+  const existingTaskIds = new Set();
+  const taskIdOf = new Map();        // fullId -> task_id
+  const pyCallableOf = new Map();    // fullId -> python function name
+  const pyVarOf = new Map();         // fullId -> python variable name (t_*)
+
+  for (const n of nodes) {
+    const baseLabel = n?.data?.label ? n.data.label : (n?.data?.type || 'node');
+    const taskId = ensureUniqueTaskId(baseLabel, existingTaskIds);
+    taskIdOf.set(n.fullId, taskId);
+    pyCallableOf.set(n.fullId, `task_${pyIdent(taskId)}`);
+    pyVarOf.set(n.fullId, `t_${pyIdent(taskId)}`);
+  }
+
+  const pyStartDate = startDate ? `datetime.strptime("${startDate}", "%Y-%m-%d")` : `datetime(2024, 1, 1)`;
+  const pyTags = `[${tags.map(t => `"${t}"`).join(', ')}]`;
+  const pySchedule = schedule && schedule !== 'None' ? `"${schedule}"` : 'None';
+  const poolLine = defaultPool ? `, pool="${defaultPool}"` : '';
+
+  const header = `# Generated by airflow.cjs — do not edit by hand
+from __future__ import annotations
+import json, os, sys, tempfile, subprocess, shlex, pathlib, textwrap
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.operators.dummy import DummyOperator
-from airflow.operators.bash import BashOperator
-from airflow.operators.subdag import SubDagOperator
-from airflow.sensors.external_task import ExternalTaskSensor
 
-# Define default arguments
+def _write(p, content, mode='w', enc='utf-8'):
+    with open(p, mode, encoding=enc) as f:
+        f.write(content)
+
+def _read(p, enc='utf-8'):
+    with open(p, 'r', encoding=enc) as f:
+        return f.read()
+
+def _maybe_json(s):
+    try:
+        return json.loads(s)
+    except Exception:
+        return s
+
+def _json_or_str(obj):
+    try:
+        return json.dumps(obj)
+    except Exception:
+        return str(obj)
+
+def _xcom_input(ti, upstream_task_ids):
+    if not upstream_task_ids:
+        return None
+    if len(upstream_task_ids) == 1:
+        return ti.xcom_pull(task_ids=upstream_task_ids[0])
+    result = {}
+    for tid in upstream_task_ids:
+        result[tid] = ti.xcom_pull(task_ids=tid)
+    return result
+
+# ---- Wrappers faithful to poller.cjs semantics ----
+
+def _run_js_with_inline_input(code:str, input_obj):
+    \"\"\"processJsNode: inline const input = <json>; write output to temp file via fs.\"\"\"
+    with tempfile.TemporaryDirectory() as td:
+        out_path = os.path.join(td, "out.json")
+        script_path = os.path.join(td, "script.js")
+        input_json = json.dumps(input_obj)
+        script = f\"\"\"\nconst input = {input_json};\nconst fs = require('fs');\n{code}\nfs.writeFileSync(\"{out_path}\", JSON.stringify(typeof output==='undefined'?null:output), 'utf8');\n\"\"\".strip()
+        _write(script_path, script)
+        proc = subprocess.run(["node", script_path], capture_output=True, text=True)
+        stdout, stderr = proc.stdout, proc.stderr
+        output = None
+        if os.path.exists(out_path):
+            try:
+                output = _maybe_json(_read(out_path))
+            except Exception:
+                output = _read(out_path)
+        if proc.returncode != 0 or (stderr and 'error' in stderr.lower()):
+            return {"log": stdout or None, "error": (stderr or '') or f"exit {proc.returncode}", "output": output}
+        if stdout and any(k in stdout.lower() for k in ["error","exception","failed","not found"]):
+            return {"log": None, "error": stdout, "output": output}
+        return output
+
+def _run_js_backend_with_inline_input(code:str, input_obj):
+    \"\"\"processJsBackendNode: same runner; backend-style imports allowed inside code.\"\"\"\n    return _run_js_with_inline_input(code, input_obj)
+
+def _run_batch_with_env(code:str, input_obj):
+    \"\"\"processBatchNode: set INPUT/OUTPUT env, write .bat, run via cmd.exe /c.\"\"\"\n    with tempfile.TemporaryDirectory() as td:
+        out_path = os.path.join(td, "out.txt")
+        bat_path = os.path.join(td, "script.bat")
+        input_str = "" if input_obj is None else str(input_obj).replace('"','\\\\\"')
+        batch = f\"\"\"@echo off\nset INPUT=\"{input_str}\"\nset OUTPUT=\"{out_path}\"\n{code}\n\"\"\"\n        _write(bat_path, batch, enc='utf-8')
+        proc = subprocess.run(["cmd.exe", "/c", bat_path], capture_output=True, text=True)
+        stdout, stderr = proc.stdout, proc.stderr
+        output = None
+        if os.path.exists(out_path):
+            try:
+                output = _read(out_path)
+                try: output = json.loads(output)
+                except: pass
+            except Exception:
+                output = None
+        if proc.returncode != 0 or (stderr and 'error' in stderr.lower()):
+            return {"log": stdout or None, "error": (stderr or '') or f"exit {proc.returncode}", "output": (output or stdout)}
+        if stdout and any(k in stdout.lower() for k in ["error","exception","failed","not recognized","not found"]):
+            return {"log": None, "error": stdout, "output": (output or None)}
+        return output if output is not None else stdout
+
+def _run_powershell_with_env(code:str, input_obj):
+    \"\"\"processPowershellNode: $env:INPUT, $env:OUTPUT, run powershell -ExecutionPolicy Bypass -File ...\"\"\"\n    with tempfile.TemporaryDirectory() as td:
+        out_path = os.path.join(td, "out.txt")
+        ps1_path = os.path.join(td, "script.ps1")
+        input_str = "" if input_obj is None else str(input_obj).replace('"','\"\"')
+        ps = f\"\"\"$env:INPUT=\"{input_str}\"\n$env:OUTPUT=\"{out_path}\"\n{code}\n\"\"\"\n        _write(ps1_path, ps, enc='utf-8')
+        proc = subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", ps1_path], capture_output=True, text=True)
+        stdout, stderr = proc.stdout, proc.stderr
+        output = None
+        if os.path.exists(out_path):
+            try:
+                output = _read(out_path)
+                try: output = json.loads(output)
+                except: pass
+            except Exception:
+                output = None
+        if proc.returncode != 0 or (stderr and 'error' in stderr.lower()):
+            return {"log": stdout or None, "error": (stderr or '') or f"exit {proc.returncode}", "output": (output or stdout)}
+        if stdout and any(k in stdout.lower() for k in ["error","exception","failed","not recognized","not found"]):
+            return {"log": None, "error": stdout, "output": (output or None)}
+        return output if output is not None else stdout
+
+def _run_groovy_with_io_file(code:str, input_obj):
+    \"\"\"processGroovyNode: write input.json, groovy reads it, write output.json\"\"\"\n    with tempfile.TemporaryDirectory() as td:
+        in_path = os.path.join(td, "in.json").replace(\"\\\\\",\"/\")
+        out_path = os.path.join(td, "out.json").replace(\"\\\\\",\"/\")
+        groovy_path = os.path.join(td, "script.groovy")
+        _write(in_path, json.dumps(input_obj))
+        groovy_code = f\"\"\"\nimport groovy.json.JsonSlurper\nimport groovy.json.JsonOutput\n\ndef smartParse = {{ s ->\n  try {{ return new JsonSlurper().parseText(s) }} catch(e) {{ return s }}\n}}\n\ndef input = smartParse(new File('{in_path}').text)\ndef output = null\n{code}\n\ndef asJson = {{ obj ->\n  try {{ JsonOutput.toJson(obj) }} catch(e) {{ return JsonOutput.toJson([value: obj?.toString(), error: e.toString()]) }}\n}}\nnew File('{out_path}').text = asJson(output)\n\"\"\"\n        _write(groovy_path, groovy_code)\n        proc = subprocess.run([\"groovy\", groovy_path], capture_output=True, text=True)
+        stdout, stderr = proc.stdout, proc.stderr
+        output = None
+        if os.path.exists(out_path):
+            try: output = _maybe_json(_read(out_path))
+            except: output = _read(out_path)
+        if proc.returncode != 0 or (stderr and 'error' in stderr.lower()):
+            return {"log": stdout or None, "error": (stderr or '') or f"exit {proc.returncode}", "output": output}
+        if stdout and any(k in stdout.lower() for k in ["error","exception","failed","not found"]):
+            return {"log": None, "error": stdout, "output": output}
+        return output
+
 default_args = {
-    'owner': '${DEFAULT_AIRFLOW_ARGS.owner}',
-    'depends_on_past': ${DEFAULT_AIRFLOW_ARGS.depends_on_past},
-    'email_on_failure': ${DEFAULT_AIRFLOW_ARGS.email_on_failure},
-    'email_on_retry': ${DEFAULT_AIRFLOW_ARGS.email_on_retry},
-    'retries': ${DEFAULT_AIRFLOW_ARGS.retries},
-    'retry_delay': ${DEFAULT_AIRFLOW_ARGS.retry_delay},
+    "owner": "${owner}",
+    "depends_on_past": False,
+    "retries": 0,
 }
 
-# Define the DAG
 dag = DAG(
-    '${dagId}',
-    default_args=default_args,
-    description='Generated from Orchestrator flow',
-    schedule_interval=None,
-    start_date=datetime(2022, 1, 1),
+    dag_id="${dagId}",
+    description=${JSON.stringify(description)},
+    start_date=${pyStartDate},
+    schedule=${pySchedule},
     catchup=False,
-    tags=['orchestrator', 'generated'],
+    tags=${pyTags},
 )
-
 `;
 
-  // Generate operators for each node
-  flow.nodes.forEach(node => {
-    if (node.type !== 'comment') {
-      code += generateOperatorForNode(node, node.id, basePath);
-    }
-  });
-  
-  // Update upstream task references for XCom pulls
-  code += `
-# Update upstream task references for XCom pulls
-`;
-  
-  flow.nodes.forEach(node => {
-    if (node.type !== 'comment') {
-      const nodeId = node.id;
-      const taskName = toPythonIdentifier(node.data?.label || nodeId);
-      
-      if (dependencies[nodeId] && dependencies[nodeId].length > 0) {
-        const upstreamTasks = dependencies[nodeId].map(depId => {
-          const depNode = nodeMap[depId];
-          if (depNode && depNode.type !== 'comment') {
-            return toPythonIdentifier(depNode.data?.label || depId);
-          }
-          return null;
-        }).filter(Boolean);
-        
-        if (upstreamTasks.length > 0) {
-          code += `
-try:
-    ${taskName}.op_kwargs = {'upstream_task_ids': [${upstreamTasks.map(t => `'${t}'`).join(', ')}]}
-except (AttributeError, KeyError):
-    pass  # Not all operators have op_kwargs
+  const body = [];
 
-`;
-          
-          // For BashOperator, update the environment variables
-          if (node.data && ['jsbackend', 'batch', 'powershell', 'groovy'].includes(node.data.type)) {
-            code += `
-try:
-    # Update environment variables for BashOperator
-    ${taskName}.env['INPUT'] = "{{ ti.xcom_pull(task_ids='${upstreamTasks[0]}') }}"
-except (AttributeError, KeyError):
-    pass  # Not a BashOperator or no upstream tasks
+  // Node callables
+  for (const n of nodes) {
+    const tId = taskIdOf.get(n.fullId);
+    const funcName = pyCallableOf.get(n.fullId);
+    const type = (n?.data?.type || '').toLowerCase();
+    const lang = (n?.data?.language || '').toLowerCase();
+    const label = n?.data?.label || tId;
+    const code = pythonTripleQuoted(n?.data?.code || '');
 
-`;
-          }
-        }
-      }
-    }
-  });
-  
-  // Set up task dependencies
-  code += `
-# Set up task dependencies
-`;
-  
-  flow.edges.forEach(edge => {
-    const sourceNode = nodeMap[edge.source];
-    const targetNode = nodeMap[edge.target];
-    
-    if (sourceNode && targetNode && 
-        sourceNode.type !== 'comment' && targetNode.type !== 'comment') {
-      const sourceTaskName = toPythonIdentifier(sourceNode.data?.label || edge.source);
-      const targetTaskName = toPythonIdentifier(targetNode.data?.label || edge.target);
-      
-      code += `${sourceTaskName} >> ${targetTaskName}\n`;
-    }
-  });
-  
-  return code;
-}
+    let runner = null;
+    if (type === 'javascript' || lang === 'javascript' || lang === 'js')
+      runner = (type === 'jsbackend' || label.toLowerCase().includes('backend')) ? '_run_js_backend_with_inline_input' : '_run_js_with_inline_input';
+    else if (type === 'batch' || lang === 'batch') runner = '_run_batch_with_env';
+    else if (type === 'powershell' || lang === 'powershell' || lang === 'ps') runner = '_run_powershell_with_env';
+    else if (type === 'groovy' || lang === 'groovy') runner = '_run_groovy_with_io_file';
+    else if (type === 'flow') continue; // flattened away
+    else runner = '_run_js_with_inline_input';
 
-/**
- * Convert a flow file to an Airflow DAG Python script
- * @param {string} flowFilePath - Path to the flow file
- * @param {string} [outputPath] - Optional path to write the output file
- * @returns {string} Generated Airflow DAG Python code
- */
-function convertFlowToAirflow(flowFilePath, outputPath = null) {
-  try {
-    console.log(`Converting flow file: ${flowFilePath}`);
-    
-    // Parse the flow file
-    const parsedFlow = parseFlowFile(flowFilePath);
-    
-    // Generate a DAG ID from the flow file name
-    const dagId = path.basename(flowFilePath, '.or').replace(/[^a-zA-Z0-9_]/g, '_');
-    
-    // Get the base path for resolving relative file paths
-    const basePath = path.dirname(flowFilePath);
-    
-    // Generate the Airflow DAG code
-    const airflowCode = generateAirflowDag(parsedFlow, dagId, basePath);
-    
-    // Write to output file if specified
-    if (outputPath) {
-      fs.writeFileSync(outputPath, airflowCode, 'utf8');
-      console.log(`Airflow DAG written to: ${outputPath}`);
-    }
-    
-    return airflowCode;
-  } catch (err) {
-    console.error(`Error converting flow to Airflow: ${err.message}`);
-    throw err;
-  }
-}
-
-/**
- * Process command line arguments and convert flow file
- */
-function processCommandLine() {
-  const args = process.argv.slice(2);
-  
-  if (args.length === 0) {
-    console.log(`
-Orchestrator Flow to Airflow DAG Converter
-
-Usage:
-  node airflow.cjs <flow-file-path> [output-path]
-
-Arguments:
-  flow-file-path  Path to the .or flow file to convert
-  output-path     Optional path to write the output Python file
-                  If not provided, output is written to stdout
+    const upstreams = (inAdj.get(n.fullId) || []).map(uid => taskIdOf.get(uid)).filter(Boolean);
+    body.push(`
+def ${funcName}(ti, **context):
+    """
+    NODE: ${label}
+    TYPE: ${type || lang || 'javascript'}
+    Embedded node code (exact):
+    """
+    node_code = """${code}"""
+    input_obj = _xcom_input(ti, ${JSON.stringify(upstreams)})
+    return ${runner}(node_code, input_obj)
 `);
-    return;
   }
-  
-  const flowFilePath = args[0];
-  const outputPath = args.length > 1 ? args[1] : null;
-  
-  try {
-    const airflowCode = convertFlowToAirflow(flowFilePath, outputPath);
-    
-    if (!outputPath) {
-      // If no output path is specified, print to stdout
-      console.log(airflowCode);
-    }
-  } catch (err) {
-    console.error(`Error: ${err.message}`);
-    process.exit(1);
+
+  // Task declarations
+  for (const n of nodes) {
+    if ((n?.data?.type || '').toLowerCase() === 'flow') continue;
+    const tId = taskIdOf.get(n.fullId);
+    const varName = pyVarOf.get(n.fullId);
+    const funcName = pyCallableOf.get(n.fullId);
+    body.push(`${varName} = PythonOperator(
+    task_id="${tId}",
+    python_callable=${funcName},
+    dag=dag${poolLine}
+)`);
   }
+
+  // Dependencies
+  for (const e of edges) {
+    const s = pyVarOf.get(e.source);
+    const t = pyVarOf.get(e.target);
+    if (s && t && s !== t) body.push(`${s} >> ${t}`);
+  }
+
+  return `${header}
+# ---------- Node callables ----------
+${body.join('\n\n')}
+`.trim() + '\n';
 }
 
-// If this script is run directly, process command line arguments
-if (require.main === module) {
-  processCommandLine();
-}
+/** MAIN */
+(function main() {
+  const args = parseArgs(process.argv);
+  const flowPath = path.resolve(args.flow);
+  if (!fs.existsSync(flowPath)) fail(`Flow file not found: ${flowPath}`);
+  const root = readJson(flowPath);
 
-// Export functions for use as a library
-module.exports = {
-  parseFlowFile,
-  convertFlowToAirflow,
-  generateAirflowDag
-};
+  const flat = flattenFlow(flowPath, root);
+  const dagText = generateDagPython({
+    dagId: args.dagId,
+    description: args.description || `DAG generated from ${path.basename(flowPath)}`,
+    schedule: args.schedule || 'None',
+    startDate: args.startDate || null,
+    owner: args.owner || 'airflow',
+    tags: (args.tags ? args.tags.split(',').map(s => s.trim()).filter(Boolean) : []),
+    defaultPool: args.defaultPool || null,
+    nodes: flat.nodes,
+    edges: flat.edges
+  });
+
+  const outPath = path.resolve(args.out);
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, dagText, 'utf8');
+  console.log(`✅ Wrote DAG to ${outPath}\n- dag_id: ${args.dagId}`);
+})();

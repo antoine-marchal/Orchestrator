@@ -22,6 +22,8 @@ const isPackaged = (() => {
   return process.resourcesPath !== undefined;
 })();
 
+// LocalStorage
+global.localStorage = {};
 
 const getResourcePath = () => {
   if (isPackaged && process.resourcesPath) {
@@ -193,7 +195,7 @@ async function executeFlowFile(
   isTopLevel = true,
   _respectStarterNode = true,
   basePath = null,
-  timeout = 60000 * 60 * 8
+  timeout = 0
 ) {
   return new Promise((resolve, reject) => {
     (async () => {
@@ -425,7 +427,7 @@ async function executeFlowFile(
  * @param {Object} nodeResults - Map to store node results
  * @returns {Promise<any>} - The result of the node execution
  */
-async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 60000 * 60 * 8) {
+async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 0) {
   // Get the path to the nested flow file
   let nestedFlowPath = '';
 
@@ -992,7 +994,7 @@ function processBatchNode(id, code, input, finish, codeFilePath) {
 
   const tempBatchPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.bat`);
   const tempOutputPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
-  const inputVar = input !== undefined ? String(input).replace(/"/g, '\\"') : "";
+  const inputVar = input !== undefined ? String(input).replace(/\"/g, '\\\"') : "";
   const batchCode =
     `@echo off
 set INPUT="${inputVar}"
@@ -1008,22 +1010,36 @@ ${code}
   }
 
   const process = exec(`cmd /C "${tempBatchPath}"`, (error, stdout, stderr) => {
-    // Unregister the process when it completes
     runningProcesses.delete(id);
-
-    fs.unlink(tempBatchPath, () => { });
+    fs.unlink(tempBatchPath, () => {});
     let outputValue = null;
+
     try {
       if (fs.existsSync(tempOutputPath)) {
         outputValue = fs.readFileSync(tempOutputPath, "utf8");
         fs.unlinkSync(tempOutputPath);
       }
-    } catch (err) {
+    } catch {
       outputValue = null;
     }
+
     if (!outputValue && stdout) outputValue = stdout;
 
-    // Detect common error patterns in stdout
+    const parseJsonSafely = (data) => {
+      try {
+        let trimmed = typeof data === "string" ? data.trim() : data;
+        if (typeof trimmed === "string" && ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"')))) {
+          trimmed = trimmed.slice(1, -1);
+        }
+        return trimmed && (trimmed.startsWith("{") || trimmed.startsWith("[")) ? JSON.parse(trimmed) : data;
+      } catch (err) {
+        console.warn(`Batch output is not valid JSON: ${err.message}`);
+        return data;
+      }
+    };
+
+    const parsedOutput = parseJsonSafely(outputValue);
+
     let errorInStdout = '';
     if (/error|not recognized|failed|exception|not found/i.test(stdout)) {
       errorInStdout = stdout;
@@ -1032,14 +1048,12 @@ ${code}
     finish({
       log: errorInStdout === '' ? stdout : null,
       error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: outputValue,
+      output: parsedOutput,
     });
   });
 
-  // Register the process for potential termination
   registerProcess(id, process);
 
-  // Set up periodic check for stop signal
   const checkStopInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(checkStopInterval);
@@ -1052,13 +1066,13 @@ ${code}
         error: "Process terminated by user"
       });
     }
-  }, 500); // Check every 500ms
+  }, 500);
 
-  // Clear the interval when the process exits
   process.on('exit', () => {
     clearInterval(checkStopInterval);
   });
 }
+
 
 /**
  * Process a JS Backend node
@@ -1178,31 +1192,46 @@ function processPowershellNode(id, code, input, finish, codeFilePath) {
 
   // Run with powershell.exe
   const process = exec(`powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`, (error, stdout, stderr) => {
-    // Unregister the process when it completes
+    // Cleanup process registration
     runningProcesses.delete(id);
+    fs.unlink(tempPs1Path, () => {});
 
-    fs.unlink(tempPs1Path, () => { });
     let outputValue = null;
+
+    // Try reading PowerShell output file
     try {
       if (fs.existsSync(tempOutputPath)) {
         outputValue = fs.readFileSync(tempOutputPath, "utf8");
         fs.unlinkSync(tempOutputPath);
       }
-    } catch (err) {
+    } catch {
       outputValue = null;
     }
+
+    // Fallback to stdout if no file output
     if (!outputValue && stdout) outputValue = stdout;
 
-    // Detect error patterns
-    let errorInStdout = '';
-    if (/error|not recognized|failed|exception|not found/i.test(stdout)) {
-      errorInStdout = stdout;
-    }
+    // Attempt JSON parsing if looks like JSON
+    const parseJsonSafely = (data) => {
+      try {
+        const trimmed = typeof data === "string" ? data.trim() : data;
+        return trimmed && (trimmed.startsWith("{") || trimmed.startsWith("[")) ? JSON.parse(trimmed) : data;
+      } catch (err) {
+        console.warn(`PowerShell output is not valid JSON: ${err.message}`);
+        return data;
+      }
+    };
 
+    const parsedOutput = parseJsonSafely(outputValue);
+
+    // Detect common PowerShell error patterns
+    const errorInStdout = /error|not recognized|failed|exception|not found/i.test(stdout) ? stdout : '';
+
+    // Return structured result
     finish({
       log: errorInStdout === '' ? stdout : null,
       error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: outputValue,
+      output: parsedOutput,
     });
   });
 
