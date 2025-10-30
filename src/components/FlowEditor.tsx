@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState,useMemo } from 'react';
 import ToolbarButton from './ToolbarButton';
 import * as path from 'path';
 import { pathUtils } from '../utils/pathUtils';
+
 import ReactFlow, {
+  Edge,
   Background,
   Panel,
   NodeTypes,
@@ -175,6 +177,23 @@ const getLayoutedElements = (nodes: Node[], edges: any[], direction = 'LR') => {
 };
 
 function Flow() {
+  const { theme, toggleTheme } = useTheme();
+  const edgeLabelStyles = useMemo(() => {
+    const isDark = theme === 'dark';
+    return {
+      labelStyle: {
+        fontSize: 10,
+        fill: isDark ? '#e5e7eb' /* gray-200 */ : '#475569' /* slate-600 */,
+      },
+      labelBgStyle: {
+        fill: isDark ? 'rgba(17,24,39,0.9)'   /* gray-900 */ 
+                     : 'rgba(255,255,255,0.9)',
+
+      },
+      labelBgPadding: [8, 4] as [number, number],
+      labelBgBorderRadius: 4,
+    };
+  }, [theme]);
   const {
     nodes,
     edges,
@@ -354,11 +373,78 @@ function Flow() {
     },
     [setNodes, isDragging, nodes]
   );
+// Build dashed, labeled edges for forwardInput + restyle real edges if they match
+const displayEdges = useMemo<Edge[]>(() => {
+  // Map forward pairs and the condition text(s)
+  const forwardLabels = new Map<string, string[]>();
+  const nodeIds = new Set(nodes.map(n => n.id));
 
-  const onEdgesChange: OnEdgesChange = useCallback(
-    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    [setEdges]
-  );
+  nodes.forEach(n => {
+    if (n.data?.type !== 'goto') return;
+    const conds = Array.isArray(n.data?.conditions) ? n.data.conditions : [];
+    conds.forEach((c: any) => {
+      if (c?.forwardInput && c?.goto && nodeIds.has(c.goto)) {
+        const key = `${n.id}->${c.goto}`;
+        const label = (c.expr ?? '').trim() || '(no expr)';
+        if (!forwardLabels.has(key)) forwardLabels.set(key, []);
+        forwardLabels.get(key)!.push(label);
+      }
+    });
+  });
+
+  // Helper to join multiple conditions to the same (source,target)
+  const labelFor = (key: string) => {
+    const arr = forwardLabels.get(key);
+    if (!arr || arr.length === 0) return undefined;
+    return arr.length === 1 ? arr[0] : arr.map(s => `(${s})`).join(' OR ');
+  };
+
+  // Restyle any existing edges that match a forward pair + attach label
+  const restyled = edges.map(e => {
+    const key = `${e.source}->${e.target}`;
+    if (!forwardLabels.has(key)) return e;
+    return {
+      ...e,
+      style: { ...(e.style || {}), strokeDasharray: '4 6', strokeWidth: 1.25 },
+      animated: true,
+      label: labelFor(key),
+      data: { ...(e.data || {}), __forwardOverlay: false },
+    };
+  });
+  
+
+  // Add synthetic dashed edges for forward pairs that don't exist as real edges
+  const existingKeys = new Set(restyled.map(e => `${e.source}->${e.target}`));
+  const synthetic: Edge[] = [];
+  forwardLabels.forEach((_labels, key) => {
+    if (existingKeys.has(key)) return;
+    const [source, target] = key.split('->');
+    synthetic.push({
+      id: `fwd-${source}-${target}`,
+      source,
+      target,
+      type: 'smoothstep',
+      style: { strokeDasharray: '4 6', strokeWidth: 1.25, opacity: 0.9 },
+      animated: true,
+      focusable: false,
+      deletable: false,
+      interactionWidth: 0,
+      data: { __forwardOverlay: true },
+      zIndex: 0,
+      label: labelFor(key),
+      labelStyle: edgeLabelStyles.labelStyle,
+      labelBgStyle: edgeLabelStyles.labelBgStyle,
+      labelBgPadding: edgeLabelStyles.labelBgPadding,
+      labelBgBorderRadius: edgeLabelStyles.labelBgBorderRadius,
+    });
+  });
+
+  return [...restyled, ...synthetic];
+}, [nodes, edges, edgeLabelStyles]);
+
+
+ 
+  
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, id: `e${Date.now()}` }, eds)),
@@ -686,15 +772,15 @@ function Flow() {
   const onSelectionChange = useCallback(({ nodes }: { nodes: Node[] }) => {
     setSelectedNodes(nodes.map(node => node.id));
   }, []);
-  const { theme, toggleTheme } = useTheme();
+
   return (
     <div className="w-full" style={{ height: 'calc(100vh)' }}>
       <ReactFlow
         className='react-flow__dark'
         nodes={nodes}
-        edges={edges}
+        edges={displayEdges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+ 
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         fitView
@@ -716,8 +802,9 @@ function Flow() {
         onSelectionChange={onSelectionChange}
         multiSelectionKeyCode="Shift"
         defaultEdgeOptions={{
-          type: 'step',
-          style: { stroke: '#64748b', strokeWidth: 2 },
+          type: 'smoothstep',
+          style: { strokeDasharray: '6 4', strokeWidth: 2},
+          animated: true,
         }}
         proOptions={{ hideAttribution: true }}
       >
