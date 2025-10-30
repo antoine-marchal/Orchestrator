@@ -14,11 +14,12 @@ export interface NodeData {
   isStarterNode?: boolean;
   dontWaitForOutput?: boolean;
   jobId?: string;
-
+  
   //Add Goto-specific fields
   conditions?: Array<{
     expr: string;        // JS expression, e.g. "input.value < 50"
     goto: string;        // nodeId to jump to
+    forwardInput?: boolean;
   }>;
   gotoDecision?: string | null; // transient decision during "run entire flow"
 }

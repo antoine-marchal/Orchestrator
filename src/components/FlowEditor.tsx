@@ -494,9 +494,10 @@ function Flow() {
         data: {
           label: 'Goto',
           type: 'goto',
+
           conditions: [
             // starter example row users can edit/remove:
-            { expr: 'input?.value < 50', goto: '' },
+            { expr: 'input < 50', goto: '',forwardInput:true },
           ],
         },
         draggable: true,

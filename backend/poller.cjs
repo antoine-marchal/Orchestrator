@@ -1,157 +1,166 @@
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const kill = require("tree-kill");
+'use strict';
+const { exec } = require('child_process');
+const fs = require('fs');
+const fsp = require('fs').promises;
+const path = require('path');
+const kill = require('tree-kill');
 
-// Get the Node.js executable path from environment variable or use 'node' as default
+/* ===============================
+   Configuration & Environment
+   =============================== */
 const nodeExecutablePath = process.env.NODE_EXECUTABLE_PATH || 'node';
 
-// Constants
-const INBOX = path.join(__dirname, "inbox");
-const OUTBOX = path.join(__dirname, "outbox");
+const INBOX = path.join(__dirname, 'inbox');
+const OUTBOX = path.join(__dirname, 'outbox');
 
-// Create directories if they don't exist
+const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 200);
+const STOP_CHECK_INTERVAL_MS = Number(process.env.STOP_CHECK_INTERVAL_MS ?? 500);
+const DEFAULT_FLOW_TIMEOUT_MS = Number(process.env.DEFAULT_FLOW_TIMEOUT_MS ?? 0);   // 0 = infinite
+const JS_BACKEND_TIMEOUT_MS = Number(process.env.JS_BACKEND_TIMEOUT_MS ?? 0);    // 0 = infinite
 if (!fs.existsSync(INBOX)) fs.mkdirSync(INBOX, { recursive: true });
 if (!fs.existsSync(OUTBOX)) fs.mkdirSync(OUTBOX, { recursive: true });
 
-// Command line arguments
-const isSilent = process.argv.includes('--silent') || process.argv.includes('-s');
-const shouldShutdownAfterExecution = process.argv.includes('-s');
+const argv = process.argv;
+const isSilent = argv.includes('--silent') || argv.includes('-s');
+const shouldShutdownAfterExecution = argv.includes('-s');
+
 const isPackaged = (() => {
-  // Heuristic: in prod, process.resourcesPath existe (fourni par Electron main)
   return process.resourcesPath !== undefined;
 })();
 
-// LocalStorage
+/* ===============================
+   Globals
+   =============================== */
 global.localStorage = {};
+
+let isMasterFlowRunning = false;
+const runningProcesses = new Map(); // jobId -> ChildProcess
+
+/* ===============================
+   Paths & Resources
+   =============================== */
 
 const getResourcePath = () => {
   if (isPackaged && process.resourcesPath) {
-    // Ex : C:\Users\xxx\AppData\Local\Programs\Orchestrator\resources
     return path.join(process.resourcesPath, 'backend');
-  } else {
-    return path.join(__dirname);
   }
+  return path.join(__dirname);
 };
 
-// Fabrique le chemin absolu vers groovyExec.jar
 const groovyJarPath = path.join(getResourcePath(), 'groovyExec.jar');
 
-// Track if we're executing a master flow (top-level flow)
-let isMasterFlowRunning = false;
+/* ===============================
+   Utilities
+   =============================== */
 
-// Track running processes by job ID
-const runningProcesses = new Map();
+const nowUid = () => {
+  // Unique-ish id across processes
+  const n = process.hrtime.bigint();
+  return `${Date.now()}_${n.toString(36)}_${Math.random().toString(36).slice(2)}`;
+};
 
-// Function to register a process with its job ID
-function registerProcess(jobId, process) {
-  runningProcesses.set(jobId, process);
+function registerProcess(jobId, child) {
+  runningProcesses.set(jobId, child);
 }
 
-// Function to terminate a process by job ID
 function terminateProcess(jobId) {
-  const process = runningProcesses.get(jobId);
-  if (process) {
-    console.log(`Terminating process for job ${jobId}`);
-    try {
-      // Use tree-kill to ensure all child processes are terminated
-      kill(process.pid, 'SIGTERM', (err) => {
-        if (err) {
-          console.error(`Error killing process for job ${jobId}:`, err);
-        } else {
-          console.log(`Process for job ${jobId} terminated successfully`);
-        }
-        // Always remove from running processes map, even if there was an error
-        runningProcesses.delete(jobId);
-      });
-    } catch (err) {
-      console.error(`Error in terminateProcess for job ${jobId}:`, err);
-      // Ensure we still remove the process from the map even if tree-kill fails
-      runningProcesses.delete(jobId);
-    }
-  }
-}
-
-// Function to check if a job should be stopped
-function shouldStopJob(jobId) {
-  const stopFilePath = path.join(INBOX, `${jobId}.stop`);
-  return fs.existsSync(stopFilePath);
-}
-
-// Function to clean up stop signal file
-function cleanupStopSignal(jobId) {
+  const child = runningProcesses.get(jobId);
+  if (!child) return;
   try {
-    const stopFilePath = path.join(INBOX, `${jobId}.stop`);
-    if (fs.existsSync(stopFilePath)) {
-      try {
-        fs.unlinkSync(stopFilePath);
-        console.log(`Successfully cleaned up stop signal for job ${jobId}`);
-      } catch (err) {
-        console.error(`Error cleaning up stop signal for job ${jobId}:`, err);
-      }
-    } else {
-      //console.log(`No stop signal file found for job ${jobId}`);
-    }
+    kill(child.pid, 'SIGTERM', (err) => {
+      if (err && !isSilent) console.error(`Error killing process for job ${jobId}:`, err);
+      runningProcesses.delete(jobId);
+    });
   } catch (err) {
-    // Catch any unexpected errors in the function itself
-    console.error(`Unexpected error in cleanupStopSignal for job ${jobId}:`, err);
+    if (!isSilent) console.error(`Error in terminateProcess for job ${jobId}:`, err);
+    runningProcesses.delete(jobId);
   }
 }
 
+function shouldStopJob(jobId) {
+  return fs.existsSync(path.join(INBOX, `${jobId}.stop`));
+}
+
+function cleanupStopSignal(jobId) {
+  const stopFilePath = path.join(INBOX, `${jobId}.stop`);
+  try {
+    if (fs.existsSync(stopFilePath)) fs.unlinkSync(stopFilePath);
+  } catch (err) {
+    if (!isSilent) console.error(`Error cleaning up stop signal for job ${jobId}:`, err);
+  }
+}
+
+function readJSONSync(filePath) {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(raw);
+}
+
+function writeJSONSync(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function safeUnlinkSync(filePath) {
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (e) {
+    if (!isSilent) console.warn(`Failed to unlink ${filePath}: ${e.message}`);
+  }
+}
 /**
- * Utility to create a console logger that captures logs
- * @returns {Object} Object containing the log collector and restore function
+ * Console capture with restore
  */
 function createLogCollector() {
   const logs = [];
-  const originalConsoleLog = console.log;
-  const originalConsoleWarn = console.warn;
-  const originalConsoleError = console.error;
+  const originalConsole = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+  };
 
-  // Override console methods to capture logs
+  const stamp = () => new Date().toISOString();
+
   console.log = (...args) => {
-    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' ');
-    logs.push({ type: 'log', message });
-    originalConsoleLog.apply(console, args);
+    const message = args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ');
+    logs.push({ type: 'log', message: `[${stamp()}] ${message}` });
+    originalConsole.log.apply(console, args);
   };
-
   console.warn = (...args) => {
-    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' ');
-    logs.push({ type: 'log', message: `[WARN] ${message}` });
-    originalConsoleWarn.apply(console, args);
+    const message = args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ');
+    logs.push({ type: 'log', message: `[${stamp()}] [WARN] ${message}` });
+    originalConsole.warn.apply(console, args);
   };
-
   console.error = (...args) => {
-    const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' ');
-    logs.push({ type: 'error', message });
-    originalConsoleError.apply(console, args);
+    const message = args.map(a => (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a))).join(' ');
+    logs.push({ type: 'error', message: `[${stamp()}] ${message}` });
+    originalConsole.error.apply(console, args);
   };
 
-  // Function to restore original console methods
   const restore = () => {
-    console.log = originalConsoleLog;
-    console.warn = originalConsoleWarn;
-    console.error = originalConsoleError;
+    console.log = originalConsole.log;
+    console.warn = originalConsole.warn;
+    console.error = originalConsole.error;
     return logs;
   };
 
   return { logs, restore };
 }
 
-/**
- * Parse a flow file and prepare it for execution
- * @param {string} flowFilePath - Path to the flow file
- * @returns {Object} Parsed flow with node maps and dependency information
- */
+/* ===============================
+   Flow Parsing & Helpers
+   =============================== */
+
 function parseFlowFile(flowFilePath) {
-  if (!fs.existsSync(flowFilePath)) {
-    throw new Error(`Flow file not found: ${flowFilePath}`);
+  if (!fs.existsSync(flowFilePath)) throw new Error(`Flow file not found: ${flowFilePath}`);
+
+  let flow;
+  try {
+    const flowContent = fs.readFileSync(flowFilePath, 'utf8');
+    flow = JSON.parse(flowContent);
+  } catch (e) {
+    throw new Error(`Invalid JSON in flow file: ${flowFilePath} (${e.message})`);
   }
 
-  const flowContent = fs.readFileSync(flowFilePath, 'utf8');
-  const flow = JSON.parse(flowContent);
-
-  if (!Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) {
+  if (!flow || !Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) {
     throw new Error('Invalid flow file format: missing nodes or edges array');
   }
 
@@ -165,29 +174,15 @@ function parseFlowFile(flowFilePath) {
     (outgoingMap[e.source] ||= []).push(e);
   });
 
-  // roots = nodes with no incoming
-  const roots = flow.nodes
-    .map((n) => n.id)
-    .filter((id) => !(incomingMap[id] && incomingMap[id].length));
+  const roots = flow.nodes.map((n) => n.id).filter((id) => !(incomingMap[id] && incomingMap[id].length));
 
-  return {
-    flow,
-    nodeMap,
-    incomingMap,
-    outgoingMap,
-    roots,
-  };
+  return { flow, nodeMap, incomingMap, outgoingMap, roots };
 }
 
+/* ===============================
+   Flow Execution
+   =============================== */
 
-/**
- * Execute a flow file directly
- * @param {string} flowFilePath - Path to the flow file to execute
- * @param {any} [input=null] - Optional input data for the flow
- * @param {Array} [flowPath=[]] - Path of parent flows to detect circular references
- * @param {boolean} [isTopLevel=true] - Whether this is a top-level flow execution
- * @returns {Promise<any>} - The result of the flow execution
- */
 async function executeFlowFile(
   flowFilePath,
   flowInput = null,
@@ -207,14 +202,11 @@ async function executeFlowFile(
         const currentFlowPath = [...flowPath, flowFilePath];
         if (isTopLevel) isMasterFlowRunning = true;
 
-        const {
-          flow, nodeMap, incomingMap, outgoingMap, roots
-        } = parseFlowFile(flowFilePath);
+        const { flow, nodeMap, incomingMap, outgoingMap, roots } = parseFlowFile(flowFilePath);
 
         const starter = flow.nodes.find((n) => n?.data?.isStarterNode);
         const starterId = starter ? starter.id : null;
 
-        // ---- helpers that are *fresh* each read ----
         const byId = (id) => nodeMap[id] || null;
         const incoming = (id) => incomingMap[id] || [];
         const outgoing = (id) => outgoingMap[id] || [];
@@ -249,14 +241,13 @@ async function executeFlowFile(
           return gotos[0].id;
         };
 
-        // small expression helper: same as frontend
-        const stripSemis = (s) => (s ?? '').trim().replace(/;+\s*$/, '');
-        const toNumberIfNumeric = (v) =>
-          typeof v === 'string' && v.trim() !== '' && !isNaN(+v) ? +v : v;
+        const stripSemis = (s) => (s ?? '').trim().replace(/;+\\s*$/, '');
+        const toNumberIfNumeric = (v) => (typeof v === 'string' && v.trim() !== '' && !isNaN(+v) ? +v : v);
         const evalGotoExpr = (expr, input) => {
           try {
             const cleaned = stripSemis(expr);
             const ninput = toNumberIfNumeric(input);
+            // eslint-disable-next-line no-new-func
             const fn = new Function('input', 'ninput', `return !!(${cleaned});`);
             return !!fn(input, ninput);
           } catch {
@@ -264,7 +255,6 @@ async function executeFlowFile(
           }
         };
 
-        // ---- choose entry (starter > root-of-first-goto > first-root) ----
         let entryId = starterId;
         if (!entryId) {
           const g = firstCreatedGoto();
@@ -272,21 +262,18 @@ async function executeFlowFile(
         }
         if (!entryId) throw new Error('No valid entry point found.');
 
-        // reset goto decisions in-memory (backend version)
-        const gotoDecision = {}; // nodeId -> targetId or null
-
-        // ---- scheduler state ----
-        const nodeResults = {};             // nodeId -> output
-        const executed = new Set();         // executed this run
+        const gotoDecision = {};
+        const nodeResults = {};
+        const injectedInputs = {};
+        const executed = new Set();
         const executing = new Set();
-        const executedAt = {};              // nodeId -> monotonic tick
+        const executedAt = {};
         let tick = 0;
         let lastExecutedId = null;
         const visitCount = {};
         const MAX_VISITS_PER_NODE = 1000;
         const MAX_STEPS = 1000;
 
-        // ---- execution primitives ----
         const ensureExecuted = async (nodeId, force = false) => {
           if (executing.has(nodeId)) return;
           if (executed.has(nodeId) && !force) return;
@@ -296,39 +283,49 @@ async function executeFlowFile(
 
           executing.add(nodeId);
 
-          // execute predecessors (no force; their cache is fine)
           const preds = incoming(nodeId).map((e) => e.source);
           for (const p of preds) await ensureExecuted(p, false);
 
-          // Build inputs for this node
           let processedInputs;
-          if (starterId && nodeId === starterId) {
-            // starter sees the flow input
+          if (Object.prototype.hasOwnProperty.call(injectedInputs, nodeId)) {
+            // forwarded input from a previous goto rule wins
+            processedInputs = injectedInputs[nodeId];
+          } else if (starterId && nodeId === starterId) {
             processedInputs = flowInput;
-          } else if (preds.length) {
-            const vals = preds.map((p) => nodeResults[p]);
-            processedInputs = vals.length === 1 ? vals[0] : vals;
           } else {
-            // true root without inputs
-            processedInputs = flowInput;
+            const preds = incoming(nodeId).map((e) => e.source);
+            if (preds.length) {
+              const vals = preds.map((p) => nodeResults[p]);
+              processedInputs = vals.length === 1 ? vals[0] : vals;
+            } else {
+              processedInputs = flowInput;
+            }
           }
 
           if (node?.data?.type === 'goto') {
-            // decide based on latest inputs
             const rules = Array.isArray(node?.data?.conditions) ? node.data.conditions : [];
             let decision = null;
+            let forward = false;
+
             for (const r of rules) {
               if (r?.expr && r?.goto) {
                 if (evalGotoExpr(r.expr, processedInputs)) {
                   decision = r.goto;
+                  forward = !!r.forwardInput;   
                   break;
                 }
               }
             }
+
             gotoDecision[nodeId] = decision;
-            nodeResults[nodeId] = processedInputs; // pass-through for downstream readers
+            nodeResults[nodeId] = processedInputs;
+
+            // If rule asks to forward, inject input into the jump target
+            if (decision && forward) {
+              injectedInputs[decision] = processedInputs; 
+            }
+
           } else if (node?.data?.type === 'flow') {
-            // nested flow
             const currentDir = path.dirname(flowFilePath);
             const nested = await executeFlowNode(
               node,
@@ -343,7 +340,6 @@ async function executeFlowFile(
           } else if (node?.data?.type === 'constant') {
             nodeResults[nodeId] = node.data.value;
           } else {
-            // regular node (groovy/batch/jsbackend/javascript/powershell)
             const res = await executeRegularNode(
               node,
               nodeId,
@@ -355,9 +351,9 @@ async function executeFlowFile(
             );
             nodeResults[nodeId] = res?.output !== undefined ? res.output : res;
           }
-          if (node?.data?.type !== 'goto') {
-            lastExecutedId = nodeId;
-          }
+
+          if (node?.data?.type !== 'goto') lastExecutedId = nodeId;
+
           executed.add(nodeId);
           executedAt[nodeId] = ++tick;
           executing.delete(nodeId);
@@ -370,10 +366,10 @@ async function executeFlowFile(
           if (visitCount[nextId] > MAX_VISITS_PER_NODE) return;
 
           const node = byId(nextId);
-          const preds = incoming(nextId).map((e) => e.source);
-          const needsRefresh =
-            preds.some((p) => (executedAt[p] || 0) > (executedAt[nextId] || 0));
+          if (!node) return;
 
+          const preds = incoming(nextId).map((e) => e.source);
+          const needsRefresh = preds.some((p) => (executedAt[p] || 0) > (executedAt[nextId] || 0));
 
           await ensureExecuted(nextId, needsRefresh);
 
@@ -383,23 +379,18 @@ async function executeFlowFile(
           if (n?.data?.type === 'goto') {
             const jump = gotoDecision[nextId];
             if (jump) {
-              // force jump target so loops/branch hops re-exec
               await ensureExecuted(jump, true);
               await stepTo(jump, budget);
               return;
             }
-            // no decision: traverse normal outs
             for (const e of outgoing(nextId)) await stepTo(e.target, budget);
             return;
           }
 
-          // normal node: follow graphical outs
           for (const e of outgoing(nextId)) await stepTo(e.target, budget);
         };
 
-        // ---- run traversal ----
         await stepTo(entryId, { left: MAX_STEPS });
-
 
         const finalResult = lastExecutedId ? nodeResults[lastExecutedId] : null;
 
@@ -417,21 +408,13 @@ async function executeFlowFile(
   });
 }
 
+/* ===============================
+   Node Executors
+   =============================== */
 
-/**
- * Execute a flow node (nested flow)
- * @param {Object} node - The flow node to execute
- * @param {string} nodeId - The ID of the node
- * @param {any} nodeInput - Input data for the node
- * @param {Array} flowPath - Path of parent flows
- * @param {Object} nodeResults - Map to store node results
- * @returns {Promise<any>} - The result of the node execution
- */
 async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, currentFlowDir, timeout = 0) {
-  // Get the path to the nested flow file
   let nestedFlowPath = '';
 
-  // Check if we have a codeFilePath (external file) or use embedded code
   if (node.data.codeFilePath) {
     nestedFlowPath = node.data.codeFilePath;
     console.log(`Using external flow file path: ${nestedFlowPath}`);
@@ -440,12 +423,10 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
     console.log(`Using embedded flow path: ${nestedFlowPath}`);
   }
 
-  // Check if we have a valid flow path
   if (!nestedFlowPath) {
     throw new Error(`Flow node ${nodeId} has no flow file path specified`);
   }
 
-  // If the path is relative and we have a parent flow path, resolve it relative to the parent flow's directory
   if (!path.isAbsolute(nestedFlowPath) && flowPath.length > 0) {
     const parentFlowPath = flowPath[flowPath.length - 1];
     const parentDir = path.dirname(parentFlowPath);
@@ -454,78 +435,46 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
     console.log(`Resolved nested flow path: ${nestedFlowPath}`);
   }
 
-  // Start execution time tracking
   const startTime = Date.now();
 
+  const { restore: restoreNestedConsole } = createLogCollector();
   try {
-    // Set up log collection for the nested flow
-    const { restore: restoreNestedConsole } = createLogCollector();
+    // Parse once to validate and allow future checks
+    parseFlowFile(nestedFlowPath);
 
-    try {
-      // First, check if the referenced flow has a starter node
-      // We need to parse the flow file to check for a starter node
-      const { flow } = parseFlowFile(nestedFlowPath);
-      const starterNode = flow.nodes.find(node => node.data && node.data.isStarterNode);
+    const nestedFlowResult = await executeFlowFile(
+      nestedFlowPath,
+      nodeInput,
+      flowPath,
+      false,
+      true,
+      currentFlowDir,
+      timeout
+    );
 
-      // Execute the nested flow with the current flow path to track circular references
-      // Pass false for isTopLevel to indicate this is not a master flow
-      // If there's a starter node, we'll pass the input directly to it
-      // Pass the timeout value to the nested flow execution
-      const nestedFlowResult = await executeFlowFile(nestedFlowPath, nodeInput, flowPath, false, true, currentFlowDir, timeout);
+    const executionTime = Date.now() - startTime;
+    const nestedLogs = restoreNestedConsole();
 
-      // Calculate execution time
-      const executionTime = Date.now() - startTime;
-
-      // Restore original console methods and get logs
-      const nestedLogs = restoreNestedConsole();
-
-      // Log node execution results to console
-      console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
-
-      // Forward all captured logs from nested flow with proper prefixing
-      if (nestedLogs.length > 0) {
-        nestedLogs.forEach(log => {
-          if (log.type === 'error') {
-            //console.error(`[Nested] ${log.message}`);
-          } else {
-            //console.log(`[Nested] ${log.message}`);
-          }
-        });
-      }
-
-      console.log(`Output: ${JSON.stringify(nestedFlowResult, null, 2)}`);
-      console.log('---');
-
-      // Store result and execution time
-      nodeResults[nodeId] = nestedFlowResult;
-      nodeResults[`${nodeId}_executionTime`] = executionTime;
-
-      // Return result with execution time
-      return { output: nestedFlowResult, executionTime };
-    } catch (err) {
-      // Restore original console methods in case of error
-      restoreNestedConsole();
-      throw err;
+    console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
+    if (nestedLogs.length > 0) {
+      // captured logs already printed via overridden console.*; suppress duplication here
     }
+    console.log(`Output: ${JSON.stringify(nestedFlowResult, null, 2)}`);
+    console.log('---');
+
+    nodeResults[nodeId] = nestedFlowResult;
+    nodeResults[`${nodeId}_executionTime`] = executionTime;
+
+    return { output: nestedFlowResult, executionTime };
   } catch (err) {
+    restoreNestedConsole();
     console.error(`Error executing nested flow: ${err.message}`);
     throw err;
   }
 }
 
-/**
- * Execute a regular (non-flow) node
- * @param {Object} node - The node to execute
- * @param {string} nodeId - The ID of the node
- * @param {any} nodeInput - Input data for the node
- * @param {Object} nodeResults - Map to store node results
- * @param {boolean} [waitForResult=true] - Whether to wait for the result before resolving
- * @returns {Promise<any>} - The result of the node execution
- */
 async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForResult = true, timeout = 0, jobBasePath) {
-
-  // Create a temporary job file
-  const nodeJobId = `flow-cli-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const nodeJobId = `flow-cli-${nowUid()}`;
   const nodeJob = {
     id: nodeJobId,
     code: node.data.code || '',
@@ -534,71 +483,45 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     input: nodeInput,
     dontWaitForOutput: node.data.dontWaitForOutput,
     basePath: jobBasePath,
-    timeout: timeout
+    timeout: timeout,
   };
-  //console.log('Job base path is :', jobBasePath);
+
   console.log(`Executing node ${node.data.label || nodeId} (${node.data.type}) with input: ${JSON.stringify(nodeInput)}`);
-  // Start execution time tracking
+
   const startTime = Date.now();
-
-  // Execute the node job
   const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
-  fs.writeFileSync(nodeJobPath, JSON.stringify(nodeJob), 'utf8');
+  writeJSONSync(nodeJobPath, nodeJob);
 
-  // If this is a non-blocking node and we don't need to wait for the result
   if (node.data.dontWaitForOutput && !waitForResult) {
     console.log(`Started non-blocking execution for node ${node.data.label || nodeId} (${node.data.type})`);
-
-
-    // Calculate execution time
     const executionTime = Date.now() - startTime;
-
-    // Log node execution results to console
     console.log(`Non-blocking node ${node.data.label || nodeId} (${node.data.type}) completed:`);
     console.log(`Output: ${JSON.stringify(nodeInput, null, 2)}`);
     console.log('---');
-
-    // Store result and execution time
     nodeResults[nodeId] = nodeInput;
-
-
-
-    // Return a placeholder result immediately
-    return {
-      output: nodeInput,
-      executionTime: executionTime,
-      nonBlocking: true
-    };
+    return { output: nodeInput, executionTime, nonBlocking: true };
   }
 
-  // For regular nodes or when we need to wait for the result
   return new Promise((resolveNode, rejectNode) => {
-    // Set up timeout for regular nodes (not for dontWaitForOutput nodes)
     let timeoutId;
     if (!node.data.dontWaitForOutput && timeout > 0) {
       timeoutId = setTimeout(() => {
         console.error(`Node ${node.data.label || nodeId} execution timed out after ${timeout / 1000} seconds`);
-
-        // Terminate the process like the stop button does
         if (runningProcesses.has(nodeJobId)) {
-          console.log(`Terminating process for job ${nodeJobId} due to timeout`);
           terminateProcess(nodeJobId);
-
-          // Create a result file indicating the process was terminated due to timeout
           const outFile = path.join(OUTBOX, `${nodeJobId}.result.json`);
           try {
-            fs.writeFileSync(outFile, JSON.stringify({
+            writeJSONSync(outFile, {
               id: nodeJobId,
               output: null,
-              log: "Process terminated due to timeout",
+              log: 'Process terminated due to timeout',
               error: `Process terminated after ${timeout / 1000} seconds timeout`,
-              dontWaitForOutput: node.data.dontWaitForOutput
-            }, null, 2));
+              dontWaitForOutput: node.data.dontWaitForOutput,
+            });
           } catch (err) {
             console.error(`Error writing timeout result file: ${err.message}`);
           }
         }
-
         rejectNode(new Error(`Execution timed out after ${timeout / 1000} seconds`));
       }, timeout);
     }
@@ -607,70 +530,105 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
       const resultPath = path.join(OUTBOX, `${nodeJobId}.result.json`);
       if (fs.existsSync(resultPath)) {
         try {
-          // Clear the timeout if it exists
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-          }
+          if (timeoutId) clearTimeout(timeoutId);
+          const result = readJSONSync(resultPath);
+          safeUnlinkSync(resultPath);
 
-          const resultContent = fs.readFileSync(resultPath, 'utf8');
-          const result = JSON.parse(resultContent);
-          fs.unlinkSync(resultPath); // Clean up
-
-          // Calculate execution time
           const executionTime = Date.now() - startTime;
 
-          // Log node execution results to console
           console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
           if (result.log) console.log(`Log: ${result.log}`);
           if (result.error) console.error(`Error: ${result.error}`);
           console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
           console.log('---');
 
-          // Store result and execution time
           nodeResults[nodeId] = result.output;
           nodeResults[`${nodeId}_executionTime`] = executionTime;
 
-          // Add execution time to the result
           result.executionTime = executionTime;
           resolveNode(result);
         } catch (err) {
-          // Clear the timeout if it exists
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-          }
+          if (timeoutId) clearTimeout(timeoutId);
           rejectNode(err);
         }
       } else {
-        setTimeout(checkResult, 100); // Check again after 100ms
+        setTimeout(checkResult, 100);
       }
     };
 
-    // Start checking for results
     setTimeout(checkResult, 100);
   });
 }
 
-/**
- * Process a job file from the inbox
- * @param {string} filePath - Path to the job file
- */
+/* ===============================
+   Job Processing
+   =============================== */
+
+function finalizeJob(id, result, processingPath) {
+  try {
+    runningProcesses.delete(id);
+    const outFile = path.join(OUTBOX, `${id}.result.json`);
+    writeJSONSync(outFile, { id, ...result, dontWaitForOutput: result?.dontWaitForOutput });
+  } catch (err) {
+    if (!isSilent) console.error(`Error during job finalize for ${id}: ${err.message}`);
+  } finally {
+    try {
+      if (processingPath && fs.existsSync(processingPath)) fs.unlinkSync(processingPath);
+    } catch (err) {
+      if (!isSilent) console.error(`Error removing processing file ${processingPath}: ${err.message}`);
+    }
+    try {
+      cleanupStopSignal(id);
+    } catch (cleanupErr) {
+      if (!isSilent) console.error(`Error cleaning up stop signal for ${id}: ${cleanupErr.message}`);
+    }
+  }
+}
+
 function processJobFile(filePath) {
-  const jobStr = fs.readFileSync(filePath, "utf8");
-  const job = JSON.parse(jobStr);
+  const job = readJSONSync(filePath);
   let { id, code, codeFilePath, type, input, dontWaitForOutput, timeout } = job;
+
+  const existingResultPath = path.join(OUTBOX, `${id}.result.json`);
+  if (fs.existsSync(existingResultPath)) {
+    if (!isSilent) console.log(`Job ${id} already has a result file. Skipping execution.`);
+    safeUnlinkSync(filePath);
+    return;
+  }
+
+  const stopFilePath = path.join(INBOX, `${id}.stop`);
+  if (fs.existsSync(stopFilePath)) {
+    console.log(`Found stop signal for job ${id}. Terminating process.`);
+    try {
+      terminateProcess(id);
+      cleanupStopSignal(id);
+      const outFile = path.join(OUTBOX, `${id}.result.json`);
+      writeJSONSync(outFile, {
+        id,
+        output: null,
+        log: 'Process terminated by user',
+        error: 'Process terminated by user',
+        dontWaitForOutput,
+      });
+      safeUnlinkSync(filePath);
+    } catch (err) {
+      if (!isSilent) console.error(`Error terminating process for job ${id}: ${err.message}`);
+    }
+    return;
+  }
+
+  const finish = (result) => finalizeJob(id, result, filePath);
+
   if (codeFilePath) {
     try {
-      // Résolution absolue si codeFilePath est relatif
       let resolvedCodePath = codeFilePath;
       if (!path.isAbsolute(codeFilePath)) {
         const basePath = job.basePath;
         console.log('BasePath is :', basePath);
-        resolvedCodePath = path.resolve(basePath, codeFilePath);
+        resolvedCodePath = path.resolve(basePath || process.cwd(), codeFilePath);
         codeFilePath = resolvedCodePath;
       }
-
       console.log(`Loading code from external file: ${resolvedCodePath}`);
-
       if (fs.existsSync(resolvedCodePath)) {
         code = fs.readFileSync(resolvedCodePath, 'utf8');
         console.log(`Successfully loaded code from ${resolvedCodePath}`);
@@ -681,87 +639,9 @@ function processJobFile(filePath) {
       console.error(`Error loading code from file ${codeFilePath}: ${err.message}`);
     }
   }
-
-  // Update the job object with the loaded code
   job.code = code || '';
 
-  //console.log(`Processing job file: ${filePath} with the timeout ${job.timeout / 1000} seconds`);
-  // Check if there's already a result file for this job ID
-  // This could happen if the frontend tries to execute the same node multiple times
-  const existingResultPath = path.join(OUTBOX, `${id}.result.json`);
-  if (fs.existsSync(existingResultPath)) {
-    console.log(`Job ${id} already has a result file. Skipping execution.`);
-    // Clean up the duplicate job file
-    fs.unlinkSync(filePath);
-    return;
-  }
-
-  // Check if this is a stop signal
-  const stopFilePath = path.join(INBOX, `${id}.stop`);
-  if (fs.existsSync(stopFilePath)) {
-    console.log(`Found stop signal for job ${id}. Terminating process.`);
-    try {
-      // Terminate the process
-      terminateProcess(id);
-
-      try {
-        // Clean up stop signal
-        cleanupStopSignal(id);
-
-        // Create a result file indicating the process was stopped
-        const outFile = path.join(OUTBOX, `${id}.result.json`);
-        fs.writeFileSync(outFile, JSON.stringify({
-          id,
-          output: null,
-          log: "Process terminated by user",
-          error: "Process terminated by user",
-          dontWaitForOutput
-        }, null, 2));
-
-        // Clean up input file if it exists
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      } catch (cleanupErr) {
-        console.error(`Error during cleanup after termination for job ${id}: ${cleanupErr.message}`);
-      }
-    } catch (terminateErr) {
-      console.error(`Error terminating process for job ${id}: ${terminateErr.message}`);
-    }
-    return;
-  }
-
-  function finish(result) {
-    try {
-      // Remove from running processes map if it exists
-      runningProcesses.delete(id);
-
-      // Write the result file
-      const outFile = path.join(OUTBOX, `${id}.result.json`);
-      fs.writeFileSync(outFile, JSON.stringify({ id, ...result, dontWaitForOutput }, null, 2));
-
-      // Clean up input file if it exists
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      } else {
-        console.log(`Warning: Could not find processing file to clean up: ${filePath}`);
-      }
-    } catch (err) {
-      // Log the error but don't throw - ensure process termination continues
-      console.error(`Error during job cleanup for ${id}: ${err.message}`);
-    } finally {
-      // Always attempt to clean up any stop signal that might exist
-      // This is in a finally block to ensure it runs even if there are errors above
-      try {
-        cleanupStopSignal(id);
-      } catch (cleanupErr) {
-        console.error(`Error cleaning up stop signal for ${id}: ${cleanupErr.message}`);
-      }
-    }
-  }
-
-  if (type === "flow") {
-    // Check if we have a codeFilePath (external file) or use embedded code
+  if (type === 'flow') {
     let flowFilePath = '';
     if (codeFilePath) {
       flowFilePath = codeFilePath;
@@ -771,133 +651,91 @@ function processJobFile(filePath) {
       console.log(`Using embedded flow path: ${flowFilePath}`);
     }
 
-    // If the path is relative and we have a basePath, resolve it
     if (!path.isAbsolute(flowFilePath) && job.basePath) {
       console.log(`Resolving relative path: ${flowFilePath} relative to ${job.basePath}`);
-
       flowFilePath = path.resolve(job.basePath, flowFilePath);
       console.log(`Resolved to: ${flowFilePath}`);
     }
 
-    // Check if the flow file exists
     if (!fs.existsSync(flowFilePath)) {
-      finish({
-        output: null,
-        log: null,
-        error: `Flow file not found: ${flowFilePath}`
-      });
+      finish({ output: null, log: null, error: `Flow file not found: ${flowFilePath}` });
       return;
     }
 
-    // Initialize flow path if not present
     const flowPath = job.flowPath || [];
-
-    // Check for circular references in flow execution
     if (flowPath.includes(flowFilePath)) {
       finish({
         output: null,
         log: `Circular reference detected in flow execution: ${flowFilePath}`,
-        error: `Circular reference detected: ${flowFilePath} is already in the execution path`
+        error: `Circular reference detected: ${flowFilePath} is already in the execution path`,
       });
       return;
     }
 
-    try {
-      // Execute the flow asynchronously
-      (async () => {
+    (async () => {
+      try {
+        const { logs, restore: restoreConsole } = createLogCollector();
         try {
-          // Set up log collection for the flow execution
-          const { logs, restore: restoreConsole } = createLogCollector();
+          const flowResult = await executeFlowFile(
+            flowFilePath,
+            input,
+            flowPath,
+            false,
+            true,
+            job.basePath || path.dirname(flowFilePath),
+            job.timeout || DEFAULT_FLOW_TIMEOUT_MS
+          );
+          restoreConsole();
 
-          try {
-            // Execute the flow file
-            // Pass false for isTopLevel since this is being executed from a job
-            // Pass the basePath from the job if available
-            const flowResult = await executeFlowFile(
-              flowFilePath,
-              input,
-              flowPath,
-              false,
-              true,
-              job.basePath || path.dirname(flowFilePath),
-              job.timeout || 60000 * 60 * 8
-            );
+          const logMessages = logs
+            .map((log) => (log.type === 'error' ? `ERROR: ${log.message}` : log.message))
+            .join('\n');
 
-            // Restore original console methods and get logs
-            restoreConsole();
-
-            // Combine all logs into a single string
-            const logMessages = logs.map(log =>
-              log.type === 'error' ? `ERROR: ${log.message}` : log.message
-            ).join('\n');
-
-            finish({
-              output: flowResult,
-              log: logMessages || `Successfully executed flow`,
-              error: null
-            });
-          } catch (err) {
-            // Restore original console methods in case of error
-            restoreConsole();
-            throw err;
-          }
-        } catch (err) {
           finish({
-            output: null,
-            log: null,
-            error: `Error executing flow: ${err.message}`
+            output: flowResult,
+            log: logMessages || `Successfully executed flow`,
+            error: null,
           });
+        } catch (err) {
+          restoreConsole();
+          throw err;
         }
-      })();
-    } catch (err) {
-      finish({
-        output: null,
-        log: null,
-        error: `Error processing flow: ${err.message}`
-      });
-    }
-  }
-  else if (type === "groovy") {
+      } catch (err) {
+        finish({ output: null, log: null, error: `Error executing flow: ${err.message}` });
+      }
+    })();
+  } else if (type === 'groovy') {
     processGroovyNode(id, code, input, finish, codeFilePath);
-  }
-  else if (type === "batch") {
+  } else if (type === 'batch') {
     processBatchNode(id, code, input, finish, codeFilePath);
-  }
-  else if (type === "jsbackend" || type === "playwright") {
+  } else if (type === 'jsbackend' || type === 'playwright') {
     processJsBackendNode(id, code, input, finish, codeFilePath);
-  }
-  else if (type === "powershell") {
+  } else if (type === 'powershell') {
     processPowershellNode(id, code, input, finish, codeFilePath);
-  }
-  else {
-    processJsNode(id, code, input, finish, codeFilePath);
+  } else {
+    processJsNode(id, code, input, finish);
   }
 }
 
-/**
- * Process a Groovy node
- * @param {string} id - The job ID
- * @param {string} code - The Groovy code to execute
- * @param {any} input - Input data for the node
- * @param {Function} finish - Callback to finish the job
- * @param {string} [codeFilePath] - Optional path to external code file
- */
-function processGroovyNode(id, code, input, finish, codeFilePath) {
+/* ===============================
+   Language Runners
+   =============================== */
 
-  const tempGroovyPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.groovy`);
-  const tempInputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.input`);
-  const tempOutputPath = path.join(INBOX, `node_groovy_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
+function processGroovyNode(id, code, input, finish, _codeFilePath) {
+  const uid = nowUid();
+  const tempGroovyPath = path.join(INBOX, `node_groovy_${uid}.groovy`);
+  const tempInputPath = path.join(INBOX, `node_groovy_${uid}.input`);
+  const tempOutputPath = path.join(INBOX, `node_groovy_${uid}.output`);
 
-  fs.writeFileSync(tempInputPath, JSON.stringify(input === undefined ? null : input), "utf8");
+  fs.writeFileSync(tempInputPath, JSON.stringify(input === undefined ? null : input), 'utf8');
 
-  // --- Convert for Groovy ---
   const inputPathGroovy = tempInputPath.replace(/\\/g, '/');
   const outputPathGroovy = tempOutputPath.replace(/\\/g, '/');
 
   const groovyCode = `
-  def smartParse = { s -> 
-      try { (s?.trim()?.startsWith('{') || s?.trim()?.startsWith('[')) && s?.contains('"') ? new groovy.json.JsonSlurper().parseText(s) : Eval.me(s) } 
-      catch(e) { s } 
+  def smartParse = { s ->
+      try { (s?.trim()?.startsWith('{') || s?.trim()?.startsWith('[')) && s?.contains('\"') ? new groovy.json.JsonSlurper().parseText(s) : Eval.me(s) }
+      catch(e) { s }
   }
   input = smartParse(new File('${inputPathGroovy}').text)
   def output = ""
@@ -908,44 +746,39 @@ function processGroovyNode(id, code, input, finish, codeFilePath) {
     } catch (e) {
         return groovy.json.JsonOutput.toJson([value: obj?.toString(), error: e.toString()])
     }
-}
-new File('${outputPathGroovy}').text = asJson(output)
-
+  }
+  new File('${outputPathGroovy}').text = asJson(output)
   `.trim();
 
   try {
-    fs.writeFileSync(tempGroovyPath, groovyCode, "utf8");
+    fs.writeFileSync(tempGroovyPath, groovyCode, 'utf8');
   } catch (err) {
-    finish({ output: null, log: "Failed to write Groovy script: " + err.message });
+    finish({ output: null, log: `Failed to write Groovy script: ${err.message}`, error: err.message });
     return;
   }
 
   const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}"`;
-  const process = exec(javaCmd, (error, stdout, stderr) => {
-    // Unregister the process when it completes
+  const child = exec(javaCmd, (error, stdout, stderr) => {
     runningProcesses.delete(id);
-
-    fs.unlink(tempGroovyPath, () => { });
+    safeUnlinkSync(tempGroovyPath);
 
     let outputValue = null;
     try {
       if (fs.existsSync(tempOutputPath)) {
-        const rawOutput = fs.readFileSync(tempOutputPath, "utf8");
+        const rawOutput = fs.readFileSync(tempOutputPath, 'utf8');
         try {
           outputValue = JSON.parse(rawOutput);
-        } catch (parseErr) {
-          outputValue = rawOutput; // fallback if not a valid JSON string
+        } catch {
+          outputValue = rawOutput;
         }
       }
-
-    } catch (err) {
+    } catch {
       outputValue = null;
     } finally {
-      if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
-      if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+      safeUnlinkSync(tempInputPath);
+      safeUnlinkSync(tempOutputPath);
     }
 
-    // Pattern: does stdout look like an error?
     let errorInStdout = '';
     if (/Exception|Error|Caused by|groovy.lang|java\.lang/i.test(stdout)) {
       errorInStdout = stdout;
@@ -953,48 +786,31 @@ new File('${outputPathGroovy}').text = asJson(output)
 
     finish({
       log: errorInStdout === '' ? stdout : null,
-      error: (stderr) + (error ? error.message : null) + errorInStdout,
+      error: (stderr || '') + (error ? error.message : '') + errorInStdout,
       output: outputValue,
     });
   });
 
-  // Register the process for potential termination
-  registerProcess(id, process);
+  registerProcess(id, child);
 
-  // Set up periodic check for stop signal
   const checkStopInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(checkStopInterval);
       terminateProcess(id);
       cleanupStopSignal(id);
-
-      finish({
-        output: null,
-        log: "Process terminated by user",
-        error: "Process terminated by user"
-      });
+      finish({ output: null, log: 'Process terminated by user', error: 'Process terminated by user' });
     }
-  }, 500); // Check every 500ms
+  }, STOP_CHECK_INTERVAL_MS);
 
-  // Clear the interval when the process exits
-  process.on('exit', () => {
-    clearInterval(checkStopInterval);
-  });
+  child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-/**
- * Process a Batch node
- * @param {string} id - The job ID
- * @param {string} code - The Batch code to execute
- * @param {any} input - Input data for the node
- * @param {Function} finish - Callback to finish the job
- * @param {string} [codeFilePath] - Optional path to external code file
- */
-function processBatchNode(id, code, input, finish, codeFilePath) {
+function processBatchNode(id, code, input, finish, _codeFilePath) {
+  const uid = nowUid();
+  const tempBatchPath = path.join(INBOX, `node_batch_${uid}.bat`);
+  const tempOutputPath = path.join(INBOX, `node_batch_${uid}.output`);
+  const inputVar = input !== undefined ? String(input).replace(/\\"/g, '\\\\\\"') : '';
 
-  const tempBatchPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.bat`);
-  const tempOutputPath = path.join(INBOX, `node_batch_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
-  const inputVar = input !== undefined ? String(input).replace(/\"/g, '\\\"') : "";
   const batchCode =
     `@echo off
 set INPUT="${inputVar}"
@@ -1003,21 +819,21 @@ ${code}
 ` + `\r\n`;
 
   try {
-    fs.writeFileSync(tempBatchPath, batchCode, "utf8");
+    fs.writeFileSync(tempBatchPath, batchCode, 'utf8');
   } catch (err) {
-    finish({ output: null, log: "Failed to write batch file: " + err.message, error: err.message });
+    finish({ output: null, log: `Failed to write batch file: ${err.message}`, error: err.message });
     return;
   }
 
-  const process = exec(`cmd /C "${tempBatchPath}"`, (error, stdout, stderr) => {
+  const child = exec(`cmd /C "${tempBatchPath}"`, (error, stdout, stderr) => {
     runningProcesses.delete(id);
-    fs.unlink(tempBatchPath, () => {});
+    safeUnlinkSync(tempBatchPath);
     let outputValue = null;
 
     try {
       if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, "utf8");
-        fs.unlinkSync(tempOutputPath);
+        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
+        safeUnlinkSync(tempOutputPath);
       }
     } catch {
       outputValue = null;
@@ -1027,11 +843,14 @@ ${code}
 
     const parseJsonSafely = (data) => {
       try {
-        let trimmed = typeof data === "string" ? data.trim() : data;
-        if (typeof trimmed === "string" && ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"')))) {
+        let trimmed = typeof data === 'string' ? data.trim() : data;
+        if (
+          typeof trimmed === 'string' &&
+          ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"')))
+        ) {
           trimmed = trimmed.slice(1, -1);
         }
-        return trimmed && (trimmed.startsWith("{") || trimmed.startsWith("[")) ? JSON.parse(trimmed) : data;
+        return trimmed && (trimmed.startsWith('{') || trimmed.startsWith('[')) ? JSON.parse(trimmed) : data;
       } catch (err) {
         console.warn(`Batch output is not valid JSON: ${err.message}`);
         return data;
@@ -1052,88 +871,75 @@ ${code}
     });
   });
 
-  registerProcess(id, process);
+  registerProcess(id, child);
 
   const checkStopInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(checkStopInterval);
       terminateProcess(id);
       cleanupStopSignal(id);
-
-      finish({
-        output: null,
-        log: "Process terminated by user",
-        error: "Process terminated by user"
-      });
+      finish({ output: null, log: 'Process terminated by user', error: 'Process terminated by user' });
     }
-  }, 500);
+  }, STOP_CHECK_INTERVAL_MS);
 
-  process.on('exit', () => {
-    clearInterval(checkStopInterval);
-  });
+  child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-
-/**
- * Process a JS Backend node
- * @param {string} id - The job ID
- * @param {string} code - The JS code to execute
- * @param {any} input - Input data for the node
- * @param {Function} finish - Callback to finish the job
- * @param {string} [codeFilePath] - Optional path to external code file
- */
 function processJsBackendNode(id, code, input, finish, codeFilePath) {
-
-  // Use temp files for the JS script and output
-  const tempId = `node_jsbackend_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const tempScriptPath = path.join(INBOX, `${tempId}.js`); // <-- always cjs for best compat
+  const uid = nowUid();
+  const tempId = `node_jsbackend_${uid}`;
+  const tempScriptPath = path.join(INBOX, `${tempId}.mjs`); // use ESM to support import
   const tempOutputPath = path.join(INBOX, `${tempId}.output`);
 
   if (codeFilePath) {
-    let baseFolder = path.dirname(codeFilePath);
-    const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.+?\.(js|cjs))['"]/g;
-    const rewriteImports = (code, codeFilePath) => {
-      return code.replace(importRegex, (match, importPath) => {
-        // Only modify relative imports (starts with ./ or ../)
+    const baseFolder = path.dirname(codeFilePath);
+    const importRegex = /import\s+[\s\S]*?\s+from\s+['"](.+?\.(?:js|cjs|mjs))['"]/g;
+    const rewriteImports = (src, base) =>
+      src.replace(importRegex, (m, importPath) => {
         if (importPath.startsWith('.') || importPath.startsWith('/')) {
-          const rewrittenPath = path.join(codeFilePath, importPath).replace(/\\/g, '/');
-          return match.replace(importPath, 'file://' + rewrittenPath);
+          const rewrittenPath = path.join(base, importPath).replace(/\\/g, '/');
+          return m.replace(importPath, 'file://' + rewrittenPath);
         }
-        return match; // leave bare module imports untouched
+        return m;
       });
-    };
     code = rewriteImports(code, baseFolder);
   }
+
   const codeWithInput = `
-let output="";
+let output = "";
 const input = ${JSON.stringify(input)};
 import fs from 'fs';
+try {
 ${code}
+} catch (e) {
+  output = { error: (e && e.message) ? e.message : String(e) };
+}
 fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf8');
 `;
 
-  fs.writeFileSync(tempScriptPath, codeWithInput, "utf8");
+  fs.writeFileSync(tempScriptPath, codeWithInput, 'utf8');
 
-  const process = exec(`${nodeExecutablePath} "${tempScriptPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
-    // Unregister the process when it completes
+  const child = exec(`${nodeExecutablePath} "${tempScriptPath}"`, { timeout: JS_BACKEND_TIMEOUT_MS }, (error, stdout, stderr) => {
     runningProcesses.delete(id);
+    safeUnlinkSync(tempScriptPath);
 
-    fs.unlink(tempScriptPath, () => { });
     let outputValue = null;
     try {
       if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, "utf8");
-        fs.unlinkSync(tempOutputPath);
-        try { outputValue = JSON.parse(outputValue); } catch { } // decode if possible
+        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
+        safeUnlinkSync(tempOutputPath);
+        try {
+          outputValue = JSON.parse(outputValue);
+        } catch {
+          // leave as string
+        }
       }
-    } catch (err) {
+    } catch {
       outputValue = null;
     }
 
     let errorInStdout = '';
-    if (/error|not found|failed|exception/i.test(stdout)) {
-      errorInStdout = stdout;
-    }
+    if (/error|not found|failed|exception/i.test(stdout)) errorInStdout = stdout;
 
     finish({
       log: errorInStdout === '' ? stdout : null,
@@ -1142,80 +948,59 @@ fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf
     });
   });
 
-  // Register the process for potential termination
-  registerProcess(id, process);
+  registerProcess(id, child);
 
-  // Set up periodic check for stop signal
   const checkStopInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(checkStopInterval);
       terminateProcess(id);
       cleanupStopSignal(id);
-
-      finish({
-        output: null,
-        log: "Process terminated by user",
-        error: "Process terminated by user"
-      });
+      finish({ output: null, log: 'Process terminated by user', error: 'Process terminated by user' });
     }
-  }, 500); // Check every 500ms
+  }, STOP_CHECK_INTERVAL_MS);
 
-  // Clear the interval when the process exits
-  process.on('exit', () => {
-    clearInterval(checkStopInterval);
-  });
+  child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-/**
- * Process a PowerShell node
- * @param {string} id - The job ID
- * @param {string} code - The PowerShell code to execute
- * @param {any} input - Input data for the node
- * @param {Function} finish - Callback to finish the job
- * @param {string} [codeFilePath] - Optional path to external code file
- */
-function processPowershellNode(id, code, input, finish, codeFilePath) {
-
-  const tempPs1Path = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`);
-  const tempOutputPath = path.join(INBOX, `node_ps_${Date.now()}_${Math.random().toString(36).slice(2)}.output`);
-  const inputVar = input !== undefined ? String(input).replace(/"/g, '""') : "";
-  // PowerShell uses $env:INPUT and $env:OUTPUT for variables
-  const psCode =
-    `$env:INPUT="${inputVar}"\n$env:OUTPUT="${tempOutputPath}"\n${code}\n`;
+function processPowershellNode(id, code, input, finish, _codeFilePath) {
+  const uid = nowUid();
+  const tempPs1Path = path.join(INBOX, `node_ps_${uid}.ps1`);
+  const tempOutputPath = path.join(INBOX, `node_ps_${uid}.output`);
+  const inputVar = input !== undefined ? String(input).replace(/"/g, '""') : '';
+  const psCode = `$env:INPUT="${inputVar}"
+$env:OUTPUT="${tempOutputPath}"
+${code}
+`;
 
   try {
-    fs.writeFileSync(tempPs1Path, psCode, "utf8");
+    fs.writeFileSync(tempPs1Path, psCode, 'utf8');
   } catch (err) {
-    finish({ output: null, log: "Failed to write PowerShell file: " + err.message, error: err.message });
+    finish({ output: null, log: `Failed to write PowerShell file: ${err.message}`, error: err.message });
     return;
   }
 
-  // Run with powershell.exe
-  const process = exec(`powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`, (error, stdout, stderr) => {
-    // Cleanup process registration
+  const child = exec(`powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`, (error, stdout, stderr) => {
     runningProcesses.delete(id);
-    fs.unlink(tempPs1Path, () => {});
+    safeUnlinkSync(tempPs1Path);
 
     let outputValue = null;
-
-    // Try reading PowerShell output file
     try {
       if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, "utf8");
-        fs.unlinkSync(tempOutputPath);
+        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
+        safeUnlinkSync(tempOutputPath);
       }
     } catch {
       outputValue = null;
     }
 
-    // Fallback to stdout if no file output
     if (!outputValue && stdout) outputValue = stdout;
 
-    // Attempt JSON parsing if looks like JSON
     const parseJsonSafely = (data) => {
       try {
-        const trimmed = typeof data === "string" ? data.trim() : data;
-        return trimmed && (trimmed.startsWith("{") || trimmed.startsWith("[")) ? JSON.parse(trimmed) : data;
+        const trimmed = typeof data === 'string' ? data.trim() : data;
+        return trimmed && (typeof trimmed === 'string') && (trimmed.startsWith('{') || trimmed.startsWith('['))
+          ? JSON.parse(trimmed)
+          : data;
       } catch (err) {
         console.warn(`PowerShell output is not valid JSON: ${err.message}`);
         return data;
@@ -1223,11 +1008,8 @@ function processPowershellNode(id, code, input, finish, codeFilePath) {
     };
 
     const parsedOutput = parseJsonSafely(outputValue);
-
-    // Detect common PowerShell error patterns
     const errorInStdout = /error|not recognized|failed|exception|not found/i.test(stdout) ? stdout : '';
 
-    // Return structured result
     finish({
       log: errorInStdout === '' ? stdout : null,
       error: (stderr || '') + (error ? error.message : '') + errorInStdout,
@@ -1235,95 +1017,68 @@ function processPowershellNode(id, code, input, finish, codeFilePath) {
     });
   });
 
-  // Register the process for potential termination
-  registerProcess(id, process);
+  registerProcess(id, child);
 
-  // Set up periodic check for stop signal
   const checkStopInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(checkStopInterval);
       terminateProcess(id);
       cleanupStopSignal(id);
-
-      finish({
-        output: null,
-        log: "Process terminated by user",
-        error: "Process terminated by user"
-      });
+      finish({ output: null, log: 'Process terminated by user', error: 'Process terminated by user' });
     }
-  }, 500); // Check every 500ms
+  }, STOP_CHECK_INTERVAL_MS);
 
-  // Clear the interval when the process exits
-  process.on('exit', () => {
-    clearInterval(checkStopInterval);
-  });
+  child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-/**
- * Process a JavaScript node
- * @param {string} id - The job ID
- * @param {string} code - The JS code to execute
- * @param {any} input - Input data for the node
- * @param {Function} finish - Callback to finish the job
- */
 function processJsNode(id, code, input, finish) {
-
   let logs = [];
   const customConsole = {
     log: (...args) => {
-      logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
-    }
+      logs.push(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    },
+    warn: (...args) => {
+      logs.push('[WARN] ' + args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    },
+    error: (...args) => {
+      logs.push('[ERROR] ' + args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    },
   };
+
   const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
   let finished = false;
   let stopCheckInterval = null;
 
-  // Set up periodic check for stop signal
   stopCheckInterval = setInterval(() => {
     if (shouldStopJob(id)) {
       clearInterval(stopCheckInterval);
       cleanupStopSignal(id);
-
       if (!finished) {
         finished = true;
-        finish({
-          output: null,
-          log: "Process terminated by user",
-          error: "Process terminated by user"
-        });
+        finish({ output: null, log: 'Process terminated by user', error: 'Process terminated by user' });
       }
     }
-  }, 500); // Check every 500ms
+  }, STOP_CHECK_INTERVAL_MS);
 
   try {
-    const fn = new AsyncFunction(
-      "input", "console",
-      code + '\nreturn typeof process === "function" ? await process(input) : undefined;'
-    );
+    const fn = new AsyncFunction('input', 'console', `${code}\nreturn typeof process === "function" ? await process(input) : undefined;`);
     fn(input, customConsole)
-      .then(output => {
+      .then((output) => {
         clearInterval(stopCheckInterval);
         if (!finished) {
           finished = true;
-          finish({
-            output,
-            log: logs.length > 0 ? logs.join('\n') : "",
-            error: null,
-          });
+          finish({ output, log: logs.length > 0 ? logs.join('\n') : '', error: null });
         }
       })
-      .catch(err => {
+      .catch((err) => {
         clearInterval(stopCheckInterval);
         if (!finished) {
           finished = true;
-          // Look for error-like patterns in logs just in case
           let errorInLogs = '';
-          if (logs.some(log => /error|exception|fail|not found/i.test(log))) {
-            errorInLogs = logs.join('\n');
-          }
+          if (logs.some((log) => /error|exception|fail|not found/i.test(log))) errorInLogs = logs.join('\n');
           finish({
             output: null,
-            log: logs.length > 0 ? logs.join('\n') : "",
+            log: logs.length > 0 ? logs.join('\n') : '',
             error: (err && err.message ? err.message : '') + (errorInLogs ? '\n' + errorInLogs : ''),
           });
         }
@@ -1332,49 +1087,39 @@ function processJsNode(id, code, input, finish) {
     clearInterval(stopCheckInterval);
     if (!finished) {
       finished = true;
-      finish({
-        output: null,
-        log: logs.length > 0 ? logs.join('\n') : "",
-        error: err && err.message ? err.message : String(err),
-      });
+      finish({ output: null, log: logs.length > 0 ? logs.join('\n') : '', error: err && err.message ? err.message : String(err) });
     }
   }
 }
 
-/**
- * Poll the inbox directory for new job files
- */
+/* ===============================
+   Inbox Polling
+   =============================== */
+
+function isJsonJobFile(name) {
+  return name.endsWith('.json') && !name.endsWith('.result.json') && !name.endsWith('.processing') && !name.startsWith('.');
+}
+
 function pollInbox() {
   try {
-    // Get all JSON files that aren't result files
-    const files = fs.readdirSync(INBOX)
-      .filter(fn => fn.endsWith('.json') && !fn.endsWith('.result.json'));
-
-    files.forEach(file => {
+    const files = fs.readdirSync(INBOX).filter(isJsonJobFile);
+    files.forEach((file) => {
       try {
         const filePath = path.join(INBOX, file);
         const processingPath = filePath + '.processing';
 
-        // Try to atomically rename the file. If it fails, skip.
         try {
-          fs.renameSync(filePath, processingPath); // Moves file only if no one else has it!
-        } catch (err) {
-          // Another process/thread probably grabbed it first, or it's in use. Skip.
-          return;
+          fs.renameSync(filePath, processingPath); // atomic claim
+        } catch {
+          return; // someone else took it
         }
 
-        // Only process if we could rename it!
         try {
           processJobFile(processingPath);
         } catch (processErr) {
           console.error(`Error processing job file ${processingPath}: ${processErr.message}`);
-
-          // Attempt to clean up the processing file if there was an error
           try {
-            if (fs.existsSync(processingPath)) {
-              fs.unlinkSync(processingPath);
-              console.log(`Cleaned up processing file after error: ${processingPath}`);
-            }
+            if (fs.existsSync(processingPath)) fs.unlinkSync(processingPath);
           } catch (cleanupErr) {
             console.error(`Failed to clean up processing file after error: ${cleanupErr.message}`);
           }
@@ -1388,10 +1133,32 @@ function pollInbox() {
   }
 }
 
-console.log("Backend file-based executor started.");
-setInterval(pollInbox, 200);
+/* ===============================
+   Startup & Shutdown
+   =============================== */
 
-// Export the executeFlowFile function for use in the main process
+if (!isSilent) console.log('Backend file-based executor started.');
+const pollTimer = setInterval(pollInbox, POLL_INTERVAL_MS);
+
+const shutdown = (signal) => {
+  if (!isSilent) console.log(`Received ${signal}. Shutting down...`);
+  clearInterval(pollTimer);
+  // best-effort terminate child processes
+  for (const [jobId] of runningProcesses) {
+    try {
+      terminateProcess(jobId);
+    } catch { }
+  }
+  process.exit(0);
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+/* ===============================
+   Exports
+   =============================== */
+
 module.exports = {
-  executeFlowFile
+  executeFlowFile,
 };

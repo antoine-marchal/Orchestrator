@@ -913,7 +913,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
                 const relativePath = node.data.code;
                 // Convert relative path to absolute path using the master flow file's location
                 let absolutePath;
-                
+
                 if (window.electronAPI?.getAbsolutePath) {
                   absolutePath = window.electronAPI.getAbsolutePath(relativePath, pathUtils.dirname(masterFlowPath || ''));
                 } else {
@@ -1008,13 +1008,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const byId = (id: string) => get().nodes.find(n => n.id === id) || null;
     const incoming = (id: string) => get().edges.filter(e => e.target === id);
     const outgoing = (id: string) => get().edges.filter(e => e.source === id);
-    const isRoot   = (id: string) => incoming(id).length === 0;
-  
+    const isRoot = (id: string) => incoming(id).length === 0;
+
     const creationIndex = (id: string) => {
       const i = get().nodes.findIndex(n => n.id === id);
       return i < 0 ? Number.MAX_SAFE_INTEGER : i;
     };
-  
+
     const rootOf = (id: string) => {
       const seen = new Set<string>();
       let q = [id];
@@ -1031,36 +1031,36 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       roots.sort((a, b) => creationIndex(a) - creationIndex(b));
       return roots[0];
     };
-  
+
     const firstCreatedRoot = () => {
       const roots = get().nodes.map(n => n.id).filter(isRoot);
       if (!roots.length) return null;
       roots.sort((a, b) => creationIndex(a) - creationIndex(b));
       return roots[0];
     };
-  
+
     const firstCreatedGoto = () => {
       const gotos = get().nodes.filter(n => n.data?.type === 'goto');
       if (!gotos.length) return null;
       gotos.sort((a, b) => creationIndex(a.id) - creationIndex(b.id));
       return gotos[0].id;
     };
-  
+
     const stripTrailingSemis = (s: string) => (s ?? '').trim().replace(/;+\s*$/, '');
-    const toNumberIfNumeric  = (v: any) =>
+    const toNumberIfNumeric = (v: any) =>
       (typeof v === 'string' && v.trim() !== '' && !isNaN(+v) ? +v : v);
-  
+
     const evalGotoExpr = (expr: string, input: any): boolean => {
       try {
         const cleaned = stripTrailingSemis(expr);
-        const ninput  = toNumberIfNumeric(input);
+        const ninput = toNumberIfNumeric(input);
         const fn = new Function('input', 'ninput', `return !!(${cleaned});`);
         return !!fn(input, ninput);
       } catch {
         return false;
       }
     };
-  
+
     // ---------- choose entry ----------
     let entryId: string | null = null;
     if (get().starterNodeId) entryId = get().starterNodeId!;
@@ -1068,7 +1068,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       const g = firstCreatedGoto();
       entryId = g ? rootOf(g) : firstCreatedRoot();
     }
-  
+
     if (!entryId) {
       get().addConsoleMessage({
         nodeId: '',
@@ -1078,108 +1078,135 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       });
       return;
     }
-  
+
     // reset goto decisions freshly
     get().nodes
       .filter(n => n.data?.type === 'goto')
       .forEach(n => get().updateNodeData(n.id, { gotoDecision: null }, false));
-  
+
     // ---------- scheduler ----------
-    const executed  = new Set<string>();
+    const executed = new Set<string>();
     const executing = new Set<string>();
     const visitCount: Record<string, number> = {};
     const executedAt: Record<string, number> = {};
     let tick = 0;
-  
+
     const MAX_VISITS_PER_NODE = 1000;
     const MAX_STEPS = 1000;
-  
+
     const ensureExecuted = async (nodeId: string, force = false): Promise<void> => {
       if (executing.has(nodeId)) return;
       if (executed.has(nodeId) && !force) return;
-  
+
       const node = byId(nodeId);
       if (!node) return;
-  
+
       executing.add(nodeId);
-  
+
       // predecessors first
       const preds = incoming(nodeId).map(e => e.source);
       for (const p of preds) await ensureExecuted(p, false);
-  
+
       if (node.data?.type === 'goto') {
-        const inEdges = incoming(nodeId);
-        const inputNodes = inEdges
-          .map(e => byId(e.source))
-          .filter((n): n is NonNullable<typeof n> => !!n);
-  
-        const inputs = await Promise.all(
-          inputNodes.map(async (n) => {
-            if (n.data?.type === 'constant') return n.data.value;
-            return byId(n.id)?.data?.output;   // <— read fresh output
-          })
-        );
-        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+        // 1) If a previous goto forwarded an input, prefer it
+        const injected = (node.data as any)?._injectedInput;
+        let processedInputs: any;
+
+        if (typeof injected !== 'undefined') {
+          processedInputs = injected;
+          // clear it so it’s single-use
+          get().updateNodeData(nodeId, { _injectedInput: undefined }, false);
+        } else {
+          // 2) Otherwise, compute from predecessors
+          const inEdges = incoming(nodeId);
+          const inputNodes = inEdges
+            .map(e => byId(e.source))
+            .filter((n): n is NonNullable<typeof n> => !!n);
+
+          const inputs = await Promise.all(
+            inputNodes.map(async (n) => {
+              if (n.data?.type === 'constant') return n.data.value;
+              return byId(n.id)?.data?.output;
+            })
+          );
+          processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+        }
+
+        // 3) Evaluate rules and capture per-rule forward flag
         const rules = Array.isArray(node.data?.conditions) ? node.data.conditions : [];
         let decision: string | null = null;
+        let forward = false;
+
         for (const r of rules) {
           if (r?.expr && r?.goto) {
-            if (evalGotoExpr(r.expr, processedInputs)) { decision = r.goto; break; }
+            if (evalGotoExpr(r.expr, processedInputs)) {
+              decision = r.goto;
+              forward = !!r.forwardInput; // per-condition forwarding
+              break;
+            }
           }
         }
-  
+
+        // 4) Persist decision + visible output on the goto node
         get().updateNodeData(nodeId, { output: processedInputs, gotoDecision: decision }, false);
-      } else {
+
+        // 5) If the matched rule says so, forward the input to the jump target
+        if (decision && forward) {
+          get().updateNodeData(decision, { _injectedInput: processedInputs }, false);
+        }
+      }
+      else {
         await get().executeNode(nodeId);
       }
-  
+
+
       executed.add(nodeId);
       executedAt[nodeId] = ++tick;
       executing.delete(nodeId);
     };
-  
+
     const stepTo = async (nextId: string, stepBudget: { left: number }) => {
       if (stepBudget.left-- <= 0) return;
-    
+
       visitCount[nextId] = (visitCount[nextId] ?? 0) + 1;
       if (visitCount[nextId] > MAX_VISITS_PER_NODE) return;
-    
-      const node  = byId(nextId);
+
+      const node = byId(nextId);
       const preds = incoming(nextId).map(e => e.source);
-    
+
       //  refresh rule applies to ALL nodes, not just goto
       const needsRefresh =
         preds.some(p => (executedAt[p] || 0) > (executedAt[nextId] || 0));
-    
+
       await ensureExecuted(nextId, needsRefresh);
-    
+
       const n = byId(nextId);
       if (!n) return;
-    
+
       if (n.data?.type === 'goto') {
         const decision = n.data.gotoDecision;
-    
+
         if (decision) {
           // Re-run the jump target so loops and cross-branch jumps recompute
           await ensureExecuted(decision, true);
           await stepTo(decision, stepBudget);
           return;
         }
-    
+
         const outs = outgoing(nextId);
         for (const e of outs) await stepTo(e.target, stepBudget);
         return;
       }
-    
+
       // normal node: follow outs
       const outs = outgoing(nextId);
       for (const e of outs) await stepTo(e.target, stepBudget);
     };
-    
-  
+
+
     await stepTo(entryId, { left: MAX_STEPS });
   },
-  
+
 
 
 
@@ -1360,13 +1387,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             throw new Error('No flow file specified');
           }
 
-          
+
           // If we have a relative path and no absolutePath, we need to resolve it
           if (node.data.isRelativePath && !node.data.absolutePath) {
             // Determine the base path for resolution
             // Use the node's flowFilePath if available (for nested flows), otherwise use the master flow path
             const basePath = node.data.flowFilePath || state.flowPath;
-            
+
             if (basePath) {
               const baseDir = pathUtils.dirname(basePath || '');
               if (window.electronAPI?.getAbsolutePath) {
@@ -1379,8 +1406,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               throw new Error('Cannot resolve relative path: flow file has not been saved');
             }
           }
-
-          
 
           // Find input nodes and sort them by connection order
           const inputEdges = state.edges.filter(e => e.target === nodeId);
@@ -1395,10 +1420,30 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             }
             return inputNode.data.output;
           }));
-          const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
-          if (inputs.length > 0) {
+
+          // -------- INJECTION-AWARE INPUT GATHERING (flow) --------
+          let processedInputs: any;
+
+          const injected = (node.data as any)?._injectedInput;
+          if (typeof injected !== 'undefined') {
+            processedInputs = injected;
             addLog('input', prettyFormat(processedInputs));
+            // clear it so it’s single-use
+            state.updateNodeData(nodeId, { _injectedInput: undefined }, false);
+          } else {
+            const inputEdges = state.edges.filter(e => e.target === nodeId);
+            const inputNodes = inputEdges
+              .map(e => state.nodes.find(n => n.id === e.source))
+              .filter((n): n is Node => n !== undefined);
+
+            const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
+              if (inputNode.data.type === 'constant') return inputNode.data.value;
+              return inputNode.data.output;
+            }));
+            processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+            if (inputs.length > 0) addLog('input', prettyFormat(processedInputs));
           }
+          // --------------------------------------------------------
 
           // Create a payload for the backend poller
           const payload = {
@@ -1412,7 +1457,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             // Store the flow file path for reference
             flowFilePath: flowPath
           };
-          
+
           addLog('log', `Executing flow: ${flowPath}`);
           // Call the backend API to execute the flow
           const resultData = await (window as any).backendAPI.executeNodeJob(payload);
@@ -1471,17 +1516,30 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           .map(e => state.nodes.find(n => n.id === e.source))
           .filter((n): n is Node => n !== undefined);
 
-        // Get input values from connected nodes
-        const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
-          if (inputNode.data.type === 'constant') {
-            return inputNode.data.value;
-          }
-          return inputNode.data.output;
-        }));
-        const processedInputs = inputs.length === 1 ? inputs[0] : inputs;
-        if (inputs.length > 0) {
+        // -------- INJECTION-AWARE INPUT GATHERING (regular) --------
+        let processedInputs: any;
+
+        const injected = (node.data as any)?._injectedInput;
+        if (typeof injected !== 'undefined') {
+          processedInputs = injected;
           addLog('input', prettyFormat(processedInputs));
+          // clear it so it’s single-use
+          state.updateNodeData(nodeId, { _injectedInput: undefined }, false);
+        } else {
+          const inputEdges = state.edges.filter(e => e.target === nodeId);
+          const inputNodes = inputEdges
+            .map(e => state.nodes.find(n => n.id === e.source))
+            .filter((n): n is Node => n !== undefined);
+
+          const inputs = await Promise.all(inputNodes.map(async (inputNode) => {
+            if (inputNode.data.type === 'constant') return inputNode.data.value;
+            return inputNode.data.output;
+          }));
+          processedInputs = inputs.length === 1 ? inputs[0] : inputs;
+          if (inputs.length > 0) addLog('input', prettyFormat(processedInputs));
         }
+        // -----------------------------------------------------------
+
         const originalConsoleLog = console.log;
         let code = node.data.code?.trim() || '';
         if (node.data.codeFilePath && window.electronAPI?.readTextFile) {
