@@ -726,6 +726,7 @@ function processGroovyNode(id, code, input, finish, _codeFilePath) {
   const tempGroovyPath = path.join(INBOX, `node_groovy_${uid}.groovy`);
   const tempInputPath = path.join(INBOX, `node_groovy_${uid}.input`);
   const tempOutputPath = path.join(INBOX, `node_groovy_${uid}.output`);
+  const libPath = _codeFilePath?path.join(path.dirname(_codeFilePath),'lib'):undefined;
 
   fs.writeFileSync(tempInputPath, JSON.stringify(input === undefined ? null : input), 'utf8');
 
@@ -757,7 +758,7 @@ function processGroovyNode(id, code, input, finish, _codeFilePath) {
     return;
   }
 
-  const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}"`;
+  const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}" "${libPath?libPath:'lib'}"`;
   const child = exec(javaCmd, (error, stdout, stderr) => {
     runningProcesses.delete(id);
     safeUnlinkSync(tempGroovyPath);
@@ -909,11 +910,7 @@ function processJsBackendNode(id, code, input, finish, codeFilePath) {
 let output = "";
 const input = ${JSON.stringify(input)};
 import fs from 'fs';
-try {
 ${code}
-} catch (e) {
-  output = { error: (e && e.message) ? e.message : String(e) };
-}
 fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf8');
 `;
 
@@ -995,25 +992,19 @@ ${code}
 
     if (!outputValue && stdout) outputValue = stdout;
 
-    const parseJsonSafely = (data) => {
-      try {
-        const trimmed = typeof data === 'string' ? data.trim() : data;
-        return trimmed && (typeof trimmed === 'string') && (trimmed.startsWith('{') || trimmed.startsWith('['))
-          ? JSON.parse(trimmed)
-          : data;
-      } catch (err) {
-        console.warn(`PowerShell output is not valid JSON: ${err.message}`);
-        return data;
-      }
-    };
 
-    const parsedOutput = parseJsonSafely(outputValue);
+   
+    try{
+      outputValue=JSON.parse(outputValue);
+    }catch(err){
+
+    }
     const errorInStdout = /error|not recognized|failed|exception|not found/i.test(stdout) ? stdout : '';
 
     finish({
       log: errorInStdout === '' ? stdout : null,
       error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: parsedOutput,
+      output: outputValue,
     });
   });
 
