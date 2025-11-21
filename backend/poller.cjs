@@ -27,7 +27,14 @@ const shouldShutdownAfterExecution = argv.includes('-s');
 const isPackaged = (() => {
   return process.resourcesPath !== undefined;
 })();
-
+const COLORS = {
+  reset: '\x1b[0m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+};
+const indent = '  ';
 /* ===============================
    Globals
    =============================== */
@@ -106,6 +113,31 @@ function safeUnlinkSync(filePath) {
     if (!isSilent) console.warn(`Failed to unlink ${filePath}: ${e.message}`);
   }
 }
+function normalizeValue(v) {
+  if (typeof v === 'string') return v.trim();
+  return v;
+}
+
+function normalizeDeep(value) {
+  if (Array.isArray(value)) return value.map(normalizeDeep);
+  if (value && typeof value === 'object' && !Buffer.isBuffer(value)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = normalizeDeep(v);
+    }
+    return out;
+  }
+  return normalizeValue(value);
+}
+
+function normalizeInput(value) {
+  return normalizeDeep(value);
+}
+
+function normalizeOutput(value) {
+  return normalizeDeep(value);
+}
+
 /**
  * Console capture with restore
  */
@@ -311,7 +343,7 @@ async function executeFlowFile(
               if (r?.expr && r?.goto) {
                 if (evalGotoExpr(r.expr, processedInputs)) {
                   decision = r.goto;
-                  forward = !!r.forwardInput;   
+                  forward = !!r.forwardInput;
                   break;
                 }
               }
@@ -322,7 +354,7 @@ async function executeFlowFile(
 
             // If rule asks to forward, inject input into the jump target
             if (decision && forward) {
-              injectedInputs[decision] = processedInputs; 
+              injectedInputs[decision] = processedInputs;
             }
 
           } else if (node?.data?.type === 'flow') {
@@ -459,8 +491,28 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
     if (nestedLogs.length > 0) {
       // captured logs already printed via overridden console.*; suppress duplication here
     }
-    console.log(`Output: ${JSON.stringify(nestedFlowResult, null, 2)}`);
-    console.log('---');
+    let formattedOutput;
+    if (typeof nestedFlowResult === 'string') {
+      // print raw string so \r\n become real newlines
+      formattedOutput = nestedFlowResult;
+    } else {
+      try {
+        formattedOutput = JSON.stringify(nestedFlowResult, null, 2);
+      } catch {
+        formattedOutput = String(nestedFlowResult);
+      }
+    }
+
+    console.log(`${COLORS.yellow}Output:${COLORS.reset}`);
+    const indented =
+      typeof formattedOutput === 'string'
+        ? formattedOutput
+          .split(/\r?\n/)
+          .map(line => `${COLORS.cyan}${indent}${line}${COLORS.reset}`)
+          .join('\n')
+        : formattedOutput;
+    console.log(indented);
+    console.log(`${COLORS.yellow}---${COLORS.reset}`);
 
     nodeResults[nodeId] = nestedFlowResult;
     nodeResults[`${nodeId}_executionTime`] = executionTime;
@@ -496,7 +548,26 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     console.log(`Started non-blocking execution for node ${node.data.label || nodeId} (${node.data.type})`);
     const executionTime = Date.now() - startTime;
     console.log(`Non-blocking node ${node.data.label || nodeId} (${node.data.type}) completed:`);
-    console.log(`Output: ${JSON.stringify(nodeInput, null, 2)}`);
+
+    let formattedOutput;
+    if (typeof nodeInput === 'string') {
+      // print raw string so \r\n become real newlines
+      formattedOutput = nodeInput;
+    } else {
+      try {
+        formattedOutput = JSON.stringify(nodeInput, null, 2);
+      } catch {
+        formattedOutput = String(nodeInput);
+      }
+    }
+
+    console.log('Output:');
+    console.log(
+      formattedOutput
+        .split(/\r?\n/)
+        .map(line => '  ' + line)   // indent with 2 spaces
+        .join('\n')
+    );
     console.log('---');
     nodeResults[nodeId] = nodeInput;
     return { output: nodeInput, executionTime, nonBlocking: true };
@@ -539,7 +610,26 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
           console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
           if (result.log) console.log(`Log: ${result.log}`);
           if (result.error) console.error(`Error: ${result.error}`);
-          console.log(`Output: ${JSON.stringify(result.output, null, 2)}`);
+
+          let formattedOutput;
+          if (typeof result.output === 'string') {
+            // print raw string so \r\n become real newlines
+            formattedOutput = result.output;
+          } else {
+            try {
+              formattedOutput = JSON.stringify(result.output, null, 2);
+            } catch {
+              formattedOutput = String(result.output);
+            }
+          }
+
+          console.log('Output:');
+          console.log(
+            formattedOutput
+              .split(/\r?\n/)
+              .map(line => '  ' + line)   // indent with 2 spaces
+              .join('\n')
+          );
           console.log('---');
 
           nodeResults[nodeId] = result.output;
@@ -588,6 +678,21 @@ function finalizeJob(id, result, processingPath) {
 function processJobFile(filePath) {
   const job = readJSONSync(filePath);
   let { id, code, codeFilePath, type, input, dontWaitForOutput, timeout } = job;
+  // Normalize/trim input early
+  input = normalizeInput(input);
+  job.input = input;
+
+  // Determine working directory: prefer job.basePath (flow directory) if it exists
+  let execCwd = process.cwd();
+  try {
+    if (job.basePath && fs.existsSync(job.basePath)) {
+      execCwd = job.basePath;
+    } else if (codeFilePath && fs.existsSync(path.dirname(codeFilePath))) {
+      execCwd = path.dirname(codeFilePath);
+    }
+  } catch {
+    // fallback to default cwd
+  }
 
   const existingResultPath = path.join(OUTBOX, `${id}.result.json`);
   if (fs.existsSync(existingResultPath)) {
@@ -705,13 +810,13 @@ function processJobFile(filePath) {
       }
     })();
   } else if (type === 'groovy') {
-    processGroovyNode(id, code, input, finish, codeFilePath);
+    processGroovyNode(id, code, input, finish, codeFilePath, execCwd);
   } else if (type === 'batch') {
-    processBatchNode(id, code, input, finish, codeFilePath);
+    processBatchNode(id, code, input, finish, codeFilePath, execCwd);
   } else if (type === 'jsbackend' || type === 'playwright') {
-    processJsBackendNode(id, code, input, finish, codeFilePath);
+    processJsBackendNode(id, code, input, finish, codeFilePath, execCwd);
   } else if (type === 'powershell') {
-    processPowershellNode(id, code, input, finish, codeFilePath);
+    processPowershellNode(id, code, input, finish, codeFilePath, execCwd);
   } else {
     processJsNode(id, code, input, finish);
   }
@@ -721,12 +826,12 @@ function processJobFile(filePath) {
    Language Runners
    =============================== */
 
-function processGroovyNode(id, code, input, finish, _codeFilePath) {
+function processGroovyNode(id, code, input, finish, _codeFilePath, execCwd) {
   const uid = nowUid();
   const tempGroovyPath = path.join(INBOX, `node_groovy_${uid}.groovy`);
   const tempInputPath = path.join(INBOX, `node_groovy_${uid}.input`);
   const tempOutputPath = path.join(INBOX, `node_groovy_${uid}.output`);
-  const libPath = _codeFilePath?path.join(path.dirname(_codeFilePath),'lib'):undefined;
+  const libPath = _codeFilePath ? path.join(path.dirname(_codeFilePath), 'lib') : undefined;
 
   fs.writeFileSync(tempInputPath, JSON.stringify(input === undefined ? null : input), 'utf8');
 
@@ -758,15 +863,15 @@ function processGroovyNode(id, code, input, finish, _codeFilePath) {
     return;
   }
 
-  const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}" "${libPath?libPath:'lib'}"`;
-  const child = exec(javaCmd, (error, stdout, stderr) => {
+  const javaCmd = `java -jar "${groovyJarPath}" "${tempGroovyPath}" "${libPath ? libPath : 'lib'}"`;
+  const child = exec(javaCmd, { cwd: execCwd }, (error, stdout, stderr) => {
     runningProcesses.delete(id);
     safeUnlinkSync(tempGroovyPath);
 
     let outputValue = null;
     try {
       if (fs.existsSync(tempOutputPath)) {
-        const rawOutput = fs.readFileSync(tempOutputPath, 'utf8');
+        const rawOutput = fs.readFileSync(tempOutputPath, 'utf8').trim();
         try {
           outputValue = JSON.parse(rawOutput);
         } catch {
@@ -780,17 +885,23 @@ function processGroovyNode(id, code, input, finish, _codeFilePath) {
       safeUnlinkSync(tempOutputPath);
     }
 
+    if (typeof outputValue === 'string') {
+      outputValue = outputValue.trim();
+    }
+    outputValue = normalizeOutput(outputValue);
+
     let errorInStdout = '';
     if (/Exception|Error|Caused by|groovy.lang|java\.lang/i.test(stdout)) {
       errorInStdout = stdout;
     }
 
     finish({
-      log: errorInStdout === '' ? stdout : null,
-      error: (stderr || '') + (error ? error.message : '') + errorInStdout,
+      log: errorInStdout === '' ? stdout.trim() : null,
+      error: ((stderr || '') + (error ? error.message : '') + errorInStdout).trim() || null,
       output: outputValue,
     });
   });
+
 
   registerProcess(id, child);
 
@@ -806,7 +917,7 @@ function processGroovyNode(id, code, input, finish, _codeFilePath) {
   child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-function processBatchNode(id, code, input, finish, _codeFilePath) {
+function processBatchNode(id, code, input, finish, _codeFilePath, execCwd) {
   const uid = nowUid();
   const tempBatchPath = path.join(INBOX, `node_batch_${uid}.bat`);
   const tempOutputPath = path.join(INBOX, `node_batch_${uid}.output`);
@@ -826,21 +937,21 @@ ${code}
     return;
   }
 
-  const child = exec(`cmd /C "${tempBatchPath}"`, (error, stdout, stderr) => {
+  const child = exec(`cmd /C "${tempBatchPath}"`, { cwd: execCwd }, (error, stdout, stderr) => {
     runningProcesses.delete(id);
     safeUnlinkSync(tempBatchPath);
     let outputValue = null;
 
     try {
       if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
+        outputValue = fs.readFileSync(tempOutputPath, 'utf8').trim();
         safeUnlinkSync(tempOutputPath);
       }
     } catch {
       outputValue = null;
     }
 
-    if (!outputValue && stdout) outputValue = stdout;
+    if (!outputValue && stdout) outputValue = stdout.trim();
 
     const parseJsonSafely = (data) => {
       try {
@@ -849,16 +960,19 @@ ${code}
           typeof trimmed === 'string' &&
           ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"')))
         ) {
-          trimmed = trimmed.slice(1, -1);
+          trimmed = trimmed.slice(1, -1).trim();
         }
-        return trimmed && (trimmed.startsWith('{') || trimmed.startsWith('[')) ? JSON.parse(trimmed) : data;
+        return trimmed && (typeof trimmed === 'string') && (trimmed.startsWith('{') || trimmed.startsWith('['))
+          ? JSON.parse(trimmed)
+          : data;
       } catch (err) {
         console.warn(`Batch output is not valid JSON: ${err.message}`);
         return data;
       }
     };
 
-    const parsedOutput = parseJsonSafely(outputValue);
+    outputValue = parseJsonSafely(outputValue);
+    outputValue = normalizeOutput(outputValue);
 
     let errorInStdout = '';
     if (/error|not recognized|failed|exception|not found/i.test(stdout)) {
@@ -866,11 +980,12 @@ ${code}
     }
 
     finish({
-      log: errorInStdout === '' ? stdout : null,
-      error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: parsedOutput,
+      log: errorInStdout === '' ? stdout.trim() : null,
+      error: ((stderr || '') + (error ? error.message : '') + errorInStdout).trim() || null,
+      output: outputValue,
     });
   });
+
 
   registerProcess(id, child);
 
@@ -886,7 +1001,7 @@ ${code}
   child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-function processJsBackendNode(id, code, input, finish, codeFilePath) {
+function processJsBackendNode(id, code, input, finish, codeFilePath, execCwd) {
   const uid = nowUid();
   const tempId = `node_jsbackend_${uid}`;
   const tempScriptPath = path.join(INBOX, `${tempId}.mjs`); // use ESM to support import
@@ -916,34 +1031,44 @@ fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf
 
   fs.writeFileSync(tempScriptPath, codeWithInput, 'utf8');
 
-  const child = exec(`${nodeExecutablePath} "${tempScriptPath}"`, { timeout: JS_BACKEND_TIMEOUT_MS }, (error, stdout, stderr) => {
-    runningProcesses.delete(id);
-    safeUnlinkSync(tempScriptPath);
+  const child = exec(
+    `${nodeExecutablePath} "${tempScriptPath}"`,
+    { cwd: execCwd, timeout: JS_BACKEND_TIMEOUT_MS },
+    (error, stdout, stderr) => {
+      runningProcesses.delete(id);
+      safeUnlinkSync(tempScriptPath);
 
-    let outputValue = null;
-    try {
-      if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
-        safeUnlinkSync(tempOutputPath);
-        try {
-          outputValue = JSON.parse(outputValue);
-        } catch {
-          // leave as string
+      let outputValue = null;
+      try {
+        if (fs.existsSync(tempOutputPath)) {
+          let raw = fs.readFileSync(tempOutputPath, 'utf8').trim();
+          safeUnlinkSync(tempOutputPath);
+          try {
+            outputValue = JSON.parse(raw);
+          } catch {
+            outputValue = raw;
+          }
         }
+      } catch {
+        outputValue = null;
       }
-    } catch {
-      outputValue = null;
+
+      if (typeof outputValue === 'string') {
+        outputValue = outputValue.trim();
+      }
+      outputValue = normalizeOutput(outputValue);
+
+      let errorInStdout = '';
+      if (/error|not found|failed|exception/i.test(stdout)) errorInStdout = stdout;
+
+      finish({
+        log: errorInStdout === '' ? stdout.trim() : null,
+        error: ((stderr || '') + (error ? error.message : '') + errorInStdout).trim() || null,
+        output: outputValue,
+      });
     }
+  );
 
-    let errorInStdout = '';
-    if (/error|not found|failed|exception/i.test(stdout)) errorInStdout = stdout;
-
-    finish({
-      log: errorInStdout === '' ? stdout : null,
-      error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: outputValue,
-    });
-  });
 
   registerProcess(id, child);
 
@@ -959,7 +1084,7 @@ fs.writeFileSync(${JSON.stringify(tempOutputPath)}, JSON.stringify(output), 'utf
   child.on('exit', () => clearInterval(checkStopInterval));
 }
 
-function processPowershellNode(id, code, input, finish, _codeFilePath) {
+function processPowershellNode(id, code, input, finish, _codeFilePath, execCwd) {
   const uid = nowUid();
   const tempPs1Path = path.join(INBOX, `node_ps_${uid}.ps1`);
   const tempOutputPath = path.join(INBOX, `node_ps_${uid}.output`);
@@ -976,37 +1101,46 @@ ${code}
     return;
   }
 
-  const child = exec(`powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`, (error, stdout, stderr) => {
-    runningProcesses.delete(id);
-    safeUnlinkSync(tempPs1Path);
+  const child = exec(
+    `powershell -ExecutionPolicy Bypass -File "${tempPs1Path}"`,
+    { cwd: execCwd },
+    (error, stdout, stderr) => {
+      runningProcesses.delete(id);
+      safeUnlinkSync(tempPs1Path);
 
-    let outputValue = null;
-    try {
-      if (fs.existsSync(tempOutputPath)) {
-        outputValue = fs.readFileSync(tempOutputPath, 'utf8');
-        safeUnlinkSync(tempOutputPath);
+      let outputValue = null;
+      try {
+        if (fs.existsSync(tempOutputPath)) {
+          outputValue = fs.readFileSync(tempOutputPath, 'utf8').trim();
+          safeUnlinkSync(tempOutputPath);
+        }
+      } catch {
+        outputValue = null;
       }
-    } catch {
-      outputValue = null;
+
+      if (!outputValue && stdout) outputValue = stdout.trim();
+
+      if (typeof outputValue === 'string') {
+        const trimmed = outputValue.trim();
+        try {
+          outputValue = JSON.parse(trimmed);
+        } catch {
+          outputValue = trimmed;
+        }
+      }
+
+      outputValue = normalizeOutput(outputValue);
+
+      const errorInStdout = /error|not recognized|failed|exception|not found/i.test(stdout) ? stdout : '';
+
+      finish({
+        log: errorInStdout === '' ? stdout.trim() : null,
+        error: ((stderr || '') + (error ? error.message : '') + errorInStdout).trim() || null,
+        output: outputValue,
+      });
     }
+  );
 
-    if (!outputValue && stdout) outputValue = stdout;
-
-
-   
-    try{
-      outputValue=JSON.parse(outputValue);
-    }catch(err){
-
-    }
-    const errorInStdout = /error|not recognized|failed|exception|not found/i.test(stdout) ? stdout : '';
-
-    finish({
-      log: errorInStdout === '' ? stdout : null,
-      error: (stderr || '') + (error ? error.message : '') + errorInStdout,
-      output: outputValue,
-    });
-  });
 
   registerProcess(id, child);
 
@@ -1058,7 +1192,8 @@ function processJsNode(id, code, input, finish) {
         clearInterval(stopCheckInterval);
         if (!finished) {
           finished = true;
-          finish({ output, log: logs.length > 0 ? logs.join('\n') : '', error: null });
+          output = normalizeOutput(output);
+          finish({ output, log: logs.length > 0 ? logs.join('\n').trim() : '', error: null });
         }
       })
       .catch((err) => {
@@ -1069,8 +1204,8 @@ function processJsNode(id, code, input, finish) {
           if (logs.some((log) => /error|exception|fail|not found/i.test(log))) errorInLogs = logs.join('\n');
           finish({
             output: null,
-            log: logs.length > 0 ? logs.join('\n') : '',
-            error: (err && err.message ? err.message : '') + (errorInLogs ? '\n' + errorInLogs : ''),
+            log: logs.length > 0 ? logs.join('\n').trim() : '',
+            error: ((err && err.message ? err.message : '') + (errorInLogs ? '\n' + errorInLogs : '')).trim(),
           });
         }
       });
@@ -1078,11 +1213,15 @@ function processJsNode(id, code, input, finish) {
     clearInterval(stopCheckInterval);
     if (!finished) {
       finished = true;
-      finish({ output: null, log: logs.length > 0 ? logs.join('\n') : '', error: err && err.message ? err.message : String(err) });
+      finish({
+        output: null,
+        log: logs.length > 0 ? logs.join('\n').trim() : '',
+        error: (err && err.message ? err.message : String(err)).trim(),
+      });
     }
   }
-}
 
+}
 /* ===============================
    Inbox Polling
    =============================== */

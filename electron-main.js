@@ -1,6 +1,6 @@
-const { app, BrowserWindow, globalShortcut, powerSaveBlocker, Tray, Menu, dialog  } = require('electron');
+const { app, BrowserWindow, globalShortcut, powerSaveBlocker, Tray, Menu, dialog } = require('electron');
 const path = require('path');
-const { spawn,child_process } = require('child_process');
+const { spawn, child_process } = require('child_process');
 const kill = require('tree-kill');
 const fs = require('fs');
 
@@ -17,9 +17,43 @@ function destroyAllWindows() {
       win.removeAllListeners?.();
       win.webContents?.removeAllListeners?.();
       if (!win.isDestroyed()) win.destroy(); // destroy() is synchronous & harder than close()
-    } catch {}
+    } catch { }
   }
 }
+
+function cleanDirectory(dirPath) {
+  try {
+    if (!fs.existsSync(dirPath)) return;
+
+    for (const file of fs.readdirSync(dirPath)) {
+      const full = path.join(dirPath, file);
+      try {
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          fs.rmSync(full, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(full);
+        }
+      } catch { }
+    }
+  } catch (err) {
+    console.error(`Failed to clean directory ${dirPath}:`, err);
+  }
+}
+
+function getBackendPaths() {
+  const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
+
+  const backendDir = isDev
+    ? path.join(__dirname, 'backend')
+    : path.join(process.resourcesPath, 'backend');
+
+  const inbox = path.join(backendDir, 'inbox');
+  const outbox = path.join(backendDir, 'outbox');
+
+  return { backendDir, inbox, outbox };
+}
+
 
 function killTree(pid, signal = 'SIGTERM') {
   return new Promise((resolve) => {
@@ -57,17 +91,28 @@ async function stopBackendHard(backendProcess, timeoutMs = 2000) {
         await killTree(backendProcess.pid, 'SIGKILL');
       }
     }
-  } catch {}
+  } catch { }
 }
 
 async function forceQuit(exitCode = 0) {
-  if (quitting) return; // ensure single-run
+  if (quitting) return;
   quitting = true;
+
+  try {
+    const { inbox, outbox } = getBackendPaths();
+    cleanDirectory(inbox);
+    cleanDirectory(outbox);
+
+    console.log("Backend inbox/outbox cleaned on exit.");
+
+  } catch (err) {
+    console.error("Cleanup on exit failed:", err);
+  }
 
   try {
     // 0) Tell renderers to stop anything long-running (optional)
     for (const w of BrowserWindow.getAllWindows()) {
-      try { w.webContents.send('app-shutting-down'); } catch {}
+      try { w.webContents.send('app-shutting-down'); } catch { }
     }
 
     // 1) Stop your backend (use your existing stopBackend plus hard fallback)
@@ -76,18 +121,18 @@ async function forceQuit(exitCode = 0) {
       await stopBackend(); // your function
       // If you keep a handle, pass it to stopBackendHard:
       // await stopBackendHard(backendProcessRef);
-    } catch {}
+    } catch { }
 
     // 2) Clean other resources
-    try { globalShortcut.unregisterAll(); } catch {}
+    try { globalShortcut.unregisterAll(); } catch { }
     try {
       for (const id of powerBlockerIds) {
-        try { powerSaveBlocker.stop(id); } catch {}
+        try { powerSaveBlocker.stop(id); } catch { }
       }
       powerBlockerIds.clear();
-    } catch {}
-    try { Menu.setApplicationMenu(null); } catch {}
-    try { if (trayRef) { trayRef.destroy?.(); trayRef = undefined; } } catch {}
+    } catch { }
+    try { Menu.setApplicationMenu(null); } catch { }
+    try { if (trayRef) { trayRef.destroy?.(); trayRef = undefined; } } catch { }
 
     // 3) Destroy all windows (harder than close)
     destroyAllWindows();
@@ -97,11 +142,11 @@ async function forceQuit(exitCode = 0) {
 
     // 5) Final safety net: if we’re still alive after a moment, hard exit
     setTimeout(() => {
-      try { process.exit(exitCode); } catch {}
+      try { process.exit(exitCode); } catch { }
     }, 1500);
   } catch {
     // In case of unexpected errors, bail out hard
-    try { process.exit(exitCode); } catch {}
+    try { process.exit(exitCode); } catch { }
   }
 }
 
@@ -123,7 +168,7 @@ if (isSilentMode && silentModeIndex + 1 < argv.length) {
     console.error('Error: Silent mode requires a valid flow file path (.or or .json)');
     forceQuit(1); // fire-and-forget; forceQuit already schedules a hard exit
   }
-  
+
 }
 
 // Helper function to clean path arguments
@@ -150,7 +195,7 @@ if (!gotTheLock) {
   process.exit(0);
 } else {
   app.on('second-instance', () => {
-    nosplash=true;
+    nosplash = true;
     const win = BrowserWindow.getAllWindows()[0];
     if (win) {
       if (win.isMinimized()) win.restore();
@@ -172,7 +217,7 @@ let defaultTitle;
 function createWindow(flowFilePath) {
   // Determine if we're in development mode
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
-  
+
   // Choose the appropriate preload path based on environment
   let preloadPath;
   if (isDev) {
@@ -185,7 +230,7 @@ function createWindow(flowFilePath) {
 
   if (!require('fs').existsSync(preloadPath)) {
     console.log('Preload path not found, trying alternatives...');
-    
+
     // Try alternative locations
     const alternatives = [
       path.join(__dirname, 'preload.js'),
@@ -193,7 +238,7 @@ function createWindow(flowFilePath) {
       path.join(__dirname, 'dist', 'preload', 'preload.js'),
       path.join(process.cwd(), 'preload', 'preload.js')
     ];
-    
+
     for (const alt of alternatives) {
       console.log(`Checking alternative: ${alt}`);
       if (require('fs').existsSync(alt)) {
@@ -203,7 +248,7 @@ function createWindow(flowFilePath) {
       }
     }
   }
-  
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -216,9 +261,9 @@ function createWindow(flowFilePath) {
     },
     show: false // Start hidden
   });
-  
+
   defaultTitle = `Orchestrator v${app.getVersion()}`;
-  
+
   if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp) {
     win.loadURL('http://localhost:5173');
     if (!flowFilePath) win.webContents.openDevTools();
@@ -257,8 +302,8 @@ function createWindow(flowFilePath) {
       }
     }, 60000);
   `);
-  
-  
+
+
   // If a flow file path was provided, set it up to be loaded when the window is ready
   if (flowFilePath) {
     win.webContents.on('did-finish-load', () => {
@@ -273,7 +318,7 @@ function createWindow(flowFilePath) {
       }
     });
   }
-  
+
   return win;
 }
 
@@ -286,7 +331,7 @@ function openFlowInNewWindow(flowFilePath) {
   try {
     const newWindow = createWindow(flowFilePath);
     console.log('New window created successfully');
-    
+
     // Ensure the window is shown immediately for flow nodes
     newWindow.webContents.once('did-finish-load', () => {
       //console.log('New window content loaded, showing window');
@@ -294,7 +339,7 @@ function openFlowInNewWindow(flowFilePath) {
       newWindow.focus();
       //console.log('New window shown and focused');
     });
-    
+
     return newWindow;
   } catch (error) {
     console.error('Error creating new window:', error);
@@ -307,9 +352,9 @@ function createMainWindow() {
   mainWindow = createWindow();
 }
 
-function startBackend(silent=false) {
+function startBackend(silent = false) {
   if (backendProcess) return;
- 
+
   // Use process.resourcesPath for production, __dirname for dev
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
 
@@ -319,7 +364,7 @@ function startBackend(silent=false) {
 
   const bundledNodeBin = path.join(backendDir, 'node.exe');
   const pollerScript = path.join(backendDir, 'poller.cjs');
-  
+
   if (!fs.existsSync(pollerScript)) {
     console.error('Cannot start backend: poller.js not found:', pollerScript);
     return;
@@ -327,11 +372,11 @@ function startBackend(silent=false) {
 
   const args = [pollerScript];
 
-  
+
   // Try to use system Node.js first
   let useSystemNode = true;
   let nodeBin = 'node';
-  
+
   try {
     // Check if system Node.js is available by running a simple command
     const { status } = require('child_process').spawnSync(nodeBin, ['--version']);
@@ -342,7 +387,7 @@ function startBackend(silent=false) {
     console.log('System Node.js not available, falling back to bundled version');
     useSystemNode = false;
   }
-  
+
   // Fall back to bundled Node.js if system Node.js is not available
   if (!useSystemNode) {
     if (!fs.existsSync(bundledNodeBin)) {
@@ -350,20 +395,20 @@ function startBackend(silent=false) {
       return;
     }
     nodeBin = bundledNodeBin;
-    
+
   }
-  
+
   // Pass information about which Node.js is being used to the poller script
   const env = Object.assign({}, process.env, {
     NODE_EXECUTABLE_PATH: nodeBin
   });
-  
+
   backendProcess = spawn(nodeBin, args, {
     stdio: 'inherit',
     cwd: backendDir,
     env: env
   });
-  
+
 }
 
 
@@ -387,7 +432,7 @@ function stopBackend() {
  */
 function createSplashWindow() {
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
-  
+
   // Choose the appropriate preload path based on environment
   let preloadPath;
   if (isDev) {
@@ -400,7 +445,7 @@ function createSplashWindow() {
 
   if (!require('fs').existsSync(preloadPath)) {
     console.log('Preload path not found, trying alternatives...');
-    
+
     // Try alternative locations
     const alternatives = [
       path.join(__dirname, 'splash-preload.js'),
@@ -408,7 +453,7 @@ function createSplashWindow() {
       path.join(__dirname, 'dist', 'preload', 'splash-preload.js'),
       path.join(process.cwd(), 'preload', 'splash-preload.js')
     ];
-    
+
     for (const alt of alternatives) {
       console.log(`Checking alternative: ${alt}`);
       if (require('fs').existsSync(alt)) {
@@ -433,7 +478,7 @@ function createSplashWindow() {
   });
   splash.loadFile('splash.html');
   splash.center();
-  
+
   return splash;
 }
 const { ipcMain } = require('electron');
@@ -444,8 +489,8 @@ ipcMain.handle('get-version', () => {
 ipcMain.handle('get-logoPath', () => {
   const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
   const result = isDev
-          ? path.join(__dirname, 'logo.png')
-          : path.join(process.resourcesPath, 'logo.png');
+    ? path.join(__dirname, 'logo.png')
+    : path.join(process.resourcesPath, 'logo.png');
   return result;
 });
 app.whenReady().then(() => {
@@ -453,26 +498,31 @@ app.whenReady().then(() => {
   const fs = require('fs');
   const fsp = require('fs/promises');
   const path = require('path');
+  const { inbox, outbox } = getBackendPaths();
+  cleanDirectory(inbox);
+  cleanDirectory(outbox);
+
+  console.log("Cleaned backend inbox/outbox.");
 
   // Handle silent mode execution
   if (isSilentMode && silentModeFlowPath) {
     console.log(`Running in silent mode with flow file: ${silentModeFlowPath}`);
-    
-    async function runInSilentMode(){
+
+    async function runInSilentMode() {
       try {
         // Get the backend directory
         const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
         const backendDir = isDev
           ? path.join(__dirname, 'backend')
           : path.join(process.resourcesPath, 'backend');
-        
+
         // Import the executeFlowFile function from poller.cjs
         const { executeFlowFile } = require(path.join(backendDir, 'poller.cjs'));
         // Execute the flow file
-        const result = await executeFlowFile(silentModeFlowPath,null,[],true,true, path.dirname(silentModeFlowPath));
-        
-  
-        
+        const result = await executeFlowFile(silentModeFlowPath, null, [], true, true, path.dirname(silentModeFlowPath));
+
+
+
         // Exit the application after execution
         console.log('Flow execution completed. Exiting...');
         console.log('============ RESULT ================');
@@ -489,28 +539,28 @@ app.whenReady().then(() => {
     });
     return; // Skip UI initialization in silent mode
   }
-  let splashCreatedAt = Date.now() ;
+  let splashCreatedAt = Date.now();
   // Create splash window first
   try {
-    if(!nosplash)splashWindow = createSplashWindow();
+    if (!nosplash) splashWindow = createSplashWindow();
     //console.log('Splash window created');
   } catch (error) {
     console.error('Failed to create splash window:', error);
   }
-  
+
   // Start backend
 
   startBackend();
-  
+
   // Create main window
   createMainWindow();
-  
+
   // When main window is ready, close splash
   if (splashWindow) {
     const MIN_SPLASH_DURATION = 3000; // 3s en ms
     mainWindow.once('ready-to-show', () => {
       console.log('Main window loaded, closing splash');
-      
+
       // Find the first argument that looks like an or/json file
       let flowJsonPath = process.argv.find(arg => arg.endsWith('.or') || arg.endsWith('.json'));
       flowJsonPath = cleanArgPath(flowJsonPath);
@@ -525,13 +575,13 @@ app.whenReady().then(() => {
           }
         });
       }
-      else{
+      else {
         mainWindow.setTitle(defaultTitle);
       }
-      
-    const elapsed = Date.now() - splashCreatedAt;
+
+      const elapsed = Date.now() - splashCreatedAt;
       const remaining = Math.max(MIN_SPLASH_DURATION - elapsed, 0);
-      
+
       //console.log(`Splash window will close in ${remaining}ms (elapsed: ${elapsed}ms, min duration: ${MIN_SPLASH_DURATION}ms)`);
 
       setTimeout(() => {
@@ -545,7 +595,7 @@ app.whenReady().then(() => {
             console.error('Error closing splash window:', error);
           }
         }
-        
+
         try {
           mainWindow.setAlwaysOnTop(true);
           mainWindow.show();
@@ -568,7 +618,7 @@ app.whenReady().then(() => {
     fs.writeFileSync(result.filePath, data, 'utf8');
     return result.filePath;
   });
-  
+
   ipcMain.handle('execute-node-job', async (event, payload) => {
     // Use the same logic as in your TS `executeNode` for file IPC
     const isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true' || process.defaultApp;
@@ -576,7 +626,7 @@ app.whenReady().then(() => {
     const backendPath = isDev
       ? path.join(__dirname, 'backend')
       : path.join(process.resourcesPath, 'backend');
-   
+
     const inbox = path.join(backendPath, 'inbox');
     const outbox = path.join(backendPath, 'outbox');
     if (!fs.existsSync(inbox)) fs.mkdirSync(inbox, { recursive: true });
@@ -589,7 +639,7 @@ app.whenReady().then(() => {
     // For nodes with dontWaitForOutput enabled, don't wait for the result
     if (payload.dontWaitForOutput) {
       console.log(`Node ${payload.id} has dontWaitForOutput enabled, not waiting for result`);
-      
+
       // Return immediately but include information that this is a non-blocking node
       // This will allow the UI to maintain the loading state
       return {
@@ -609,13 +659,13 @@ app.whenReady().then(() => {
       while (!fs.existsSync(resultFile)) {
         if (waited > timeout) {
           console.log(`Timeout reached for job ${payload.id} after ${timeout}ms`);
-          
+
           // Create a stop signal file to terminate the process
           const stopFilePath = path.join(inbox, `${payload.id}.stop`);
           try {
             fs.writeFileSync(stopFilePath, 'timeout', 'utf8');
             console.log(`Created stop signal file for timed out job ${payload.id}`);
-            
+
             // Also create a result file to unblock any waiting processes
             const timeoutResult = {
               id: payload.id,
@@ -626,10 +676,10 @@ app.whenReady().then(() => {
             };
             fs.writeFileSync(resultFile, JSON.stringify(timeoutResult, null, 2), 'utf8');
             console.log(`Created timeout result file for job ${payload.id}`);
-            
+
             // For normal nodes (not dontWaitForOutput), we need to terminate the process
             // This is done by creating the stop signal file above
-            
+
             // Return the timeout result instead of throwing an error
             return timeoutResult;
           } catch (stopErr) {
@@ -647,7 +697,7 @@ app.whenReady().then(() => {
       return resultData;
     } catch (error) {
       console.error(`Error in execute-node-job for ${payload.id}: ${error.message}`);
-      
+
       // Return a structured error response
       return {
         id: payload.id,
@@ -671,7 +721,7 @@ app.whenReady().then(() => {
     const data = fs.readFileSync(filePath, 'utf-8');
     return { filePath, data };
   });
-  
+
   ipcMain.handle('open-flow-in-new-window', async (event, flowFilePath) => {
     console.log('IPC: open-flow-in-new-window received with path:', flowFilePath);
     if (!flowFilePath) {
@@ -687,7 +737,7 @@ app.whenReady().then(() => {
       return false;
     }
   });
-  
+
   ipcMain.on('set-title', (event, title) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
@@ -698,11 +748,11 @@ app.whenReady().then(() => {
       }
     }
   });
-  
+
   ipcMain.on('save-flow-to-path', (event, filePath, data) => {
     require('fs').writeFileSync(filePath, data, 'utf8');
   });
-  
+
   ipcMain.handle('create-stop-signal', async (event, jobId, reason = 'user_request') => {
     try {
       // Get the backend directory
@@ -710,12 +760,12 @@ app.whenReady().then(() => {
       const backendDir = isDev
         ? path.join(__dirname, 'backend')
         : path.join(process.resourcesPath, 'backend');
-      
+
       // Create the stop signal file in the inbox directory
       const stopFilePath = path.join(backendDir, 'inbox', `${jobId}.stop`);
       fs.writeFileSync(stopFilePath, reason, 'utf8');
       console.log(`Created stop signal file for job ${jobId} at ${stopFilePath} (reason: ${reason})`);
-      
+
       // For timeout cases, also create a result file to unblock any waiting processes
       if (reason === 'timeout') {
         const resultFilePath = path.join(backendDir, 'outbox', `${jobId}.result.json`);
@@ -731,7 +781,7 @@ app.whenReady().then(() => {
           console.log(`Created timeout result file for job ${jobId}`);
         }
       }
-      
+
       return true;
     } catch (error) {
       console.error(`Error creating stop signal file: ${error.message}`);
@@ -739,14 +789,20 @@ app.whenReady().then(() => {
     }
   });
 });
-process.on('SIGINT',  () => forceQuit(130)); // 130 = Ctrl+C convention
+process.on('SIGINT', () => forceQuit(130)); // 130 = Ctrl+C convention
 process.on('SIGTERM', () => forceQuit(143));
 process.on('uncaughtException', async (err) => {
   console.error('uncaughtException', err);
+  const { inbox, outbox } = getBackendPaths();
+  cleanDirectory(inbox);
+  cleanDirectory(outbox);
   await forceQuit(1);
 });
 process.on('unhandledRejection', async (err) => {
   console.error('unhandledRejection', err);
+  const { inbox, outbox } = getBackendPaths();
+  cleanDirectory(inbox);
+  cleanDirectory(outbox);
   await forceQuit(1);
 });
 

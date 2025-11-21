@@ -1606,16 +1606,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
             const jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 
             let codeFilePath = node.data.codeFilePath;
+            const flowPath = get().flowPath;
+            const basePath = flowPath?pathUtils.dirname(flowPath):undefined;
             if (codeFilePath) {
-              const flowPath = get().flowPath;
               if (!pathUtils.isAbsolute(codeFilePath) && flowPath) {
                 codeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
               }
             }
+
             const payload = {
               id: jobId,
               code: node.data.code,
               codeFilePath: codeFilePath,
+              basePath: basePath,
               type: node.data.type,
               input: processedInputs,
               timeout: get().nodeExecutionTimeout,
