@@ -35,6 +35,33 @@ const COLORS = {
   red: '\x1b[31m',
 };
 const indent = '  ';
+function colorize(color, text) {
+  const c = COLORS[color] || '';
+  return c + text + COLORS.reset;
+}
+
+function printSectionTitle(title, color = 'cyan') {
+  console.log(colorize(color, `\n=== ${title} ===`));
+}
+
+function printLabeledLine(label, value, color = 'gray') {
+  console.log(colorize(color, `${label}: `) + value);
+}
+
+function printOutputBlock(formattedOutput, lineColor = 'cyan') {
+  const indented =
+    typeof formattedOutput === 'string'
+      ? formattedOutput
+        .split(/\r?\n/)
+        .map(line => colorize(lineColor, indent + line))
+        .join('\n')
+      : formattedOutput;
+
+  console.log(colorize('yellow', 'Output:'));
+  console.log(indented);
+  console.log(colorize('yellow', '---'));
+}
+
 /* ===============================
    Globals
    =============================== */
@@ -487,13 +514,14 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
     const executionTime = Date.now() - startTime;
     const nestedLogs = restoreNestedConsole();
 
-    console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
+    printSectionTitle(`Node ${node.data.label || nodeId} (${node.data.type})`, 'cyan');
+
     if (nestedLogs.length > 0) {
-      // captured logs already printed via overridden console.*; suppress duplication here
+      // logs have already been printed via overridden console; no need to duplicate here
     }
+
     let formattedOutput;
     if (typeof nestedFlowResult === 'string') {
-      // print raw string so \r\n become real newlines
       formattedOutput = nestedFlowResult;
     } else {
       try {
@@ -503,16 +531,8 @@ async function executeFlowNode(node, nodeId, nodeInput, flowPath, nodeResults, c
       }
     }
 
-    console.log(`${COLORS.yellow}Output:${COLORS.reset}`);
-    const indented =
-      typeof formattedOutput === 'string'
-        ? formattedOutput
-          .split(/\r?\n/)
-          .map(line => `${COLORS.cyan}${indent}${line}${COLORS.reset}`)
-          .join('\n')
-        : formattedOutput;
-    console.log(indented);
-    console.log(`${COLORS.yellow}---${COLORS.reset}`);
+    printOutputBlock(formattedOutput, 'cyan');
+
 
     nodeResults[nodeId] = nestedFlowResult;
     nodeResults[`${nodeId}_executionTime`] = executionTime;
@@ -538,20 +558,27 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     timeout: timeout,
   };
 
-  console.log(`Executing node ${node.data.label || nodeId} (${node.data.type}) with input: ${JSON.stringify(nodeInput)}`);
+  printSectionTitle(`Executing node ${node.data.label || nodeId} (${node.data.type})`, 'cyan');
+  printLabeledLine('Input', JSON.stringify(nodeInput, null, 2), 'gray');
+
 
   const startTime = Date.now();
   const nodeJobPath = path.join(INBOX, `${nodeJobId}.json`);
   writeJSONSync(nodeJobPath, nodeJob);
 
   if (node.data.dontWaitForOutput && !waitForResult) {
-    console.log(`Started non-blocking execution for node ${node.data.label || nodeId} (${node.data.type})`);
+    console.log(colorize('gray',
+      `Started non-blocking execution for node ${node.data.label || nodeId} (${node.data.type})`
+    ));
+
     const executionTime = Date.now() - startTime;
-    console.log(`Non-blocking node ${node.data.label || nodeId} (${node.data.type}) completed:`);
+
+    console.log(colorize('gray',
+      `Non-blocking node ${node.data.label || nodeId} (${node.data.type}) completed in ${executionTime} ms`
+    ));
 
     let formattedOutput;
     if (typeof nodeInput === 'string') {
-      // print raw string so \r\n become real newlines
       formattedOutput = nodeInput;
     } else {
       try {
@@ -561,14 +588,8 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
       }
     }
 
-    console.log('Output:');
-    console.log(
-      formattedOutput
-        .split(/\r?\n/)
-        .map(line => '  ' + line)   // indent with 2 spaces
-        .join('\n')
-    );
-    console.log('---');
+    printOutputBlock(formattedOutput, 'cyan');
+
     nodeResults[nodeId] = nodeInput;
     return { output: nodeInput, executionTime, nonBlocking: true };
   }
@@ -577,7 +598,11 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
     let timeoutId;
     if (!node.data.dontWaitForOutput && timeout > 0) {
       timeoutId = setTimeout(() => {
-        console.error(`Node ${node.data.label || nodeId} execution timed out after ${timeout / 1000} seconds`);
+        console.error(colorize(
+          'red',
+          `Node ${node.data.label || nodeId} execution timed out after ${timeout / 1000} seconds`
+        ));
+
         if (runningProcesses.has(nodeJobId)) {
           terminateProcess(nodeJobId);
           const outFile = path.join(OUTBOX, `${nodeJobId}.result.json`);
@@ -607,13 +632,17 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
 
           const executionTime = Date.now() - startTime;
 
-          console.log(`Node ${node.data.label || nodeId} (${node.data.type}):`);
-          if (result.log) console.log(`Log: ${result.log}`);
-          if (result.error) console.error(`Error: ${result.error}`);
+          printSectionTitle(`Node ${node.data.label || nodeId} (${node.data.type})`, 'cyan');
+
+          if (result.log) {
+            printLabeledLine('Log', result.log, 'gray');
+          }
+          if (result.error) {
+            console.error(colorize('red', `Error: ${result.error}`));
+          }
 
           let formattedOutput;
           if (typeof result.output === 'string') {
-            // print raw string so \r\n become real newlines
             formattedOutput = result.output;
           } else {
             try {
@@ -623,14 +652,8 @@ async function executeRegularNode(node, nodeId, nodeInput, nodeResults, waitForR
             }
           }
 
-          console.log('Output:');
-          console.log(
-            formattedOutput
-              .split(/\r?\n/)
-              .map(line => '  ' + line)   // indent with 2 spaces
-              .join('\n')
-          );
-          console.log('---');
+          printOutputBlock(formattedOutput, 'cyan');
+
 
           nodeResults[nodeId] = result.output;
           nodeResults[`${nodeId}_executionTime`] = executionTime;
@@ -1267,7 +1290,8 @@ function pollInbox() {
    Startup & Shutdown
    =============================== */
 
-if (!isSilent) console.log('Backend file-based executor started.');
+if (!isSilent) console.log(colorize('green', 'Backend file-based executor started.'));
+
 const pollTimer = setInterval(pollInbox, POLL_INTERVAL_MS);
 
 const shutdown = (signal) => {

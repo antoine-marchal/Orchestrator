@@ -103,10 +103,10 @@ async function forceQuit(exitCode = 0) {
     cleanDirectory(inbox);
     cleanDirectory(outbox);
 
-    console.log("Backend inbox/outbox cleaned on exit.");
+    //console.log("Backend inbox/outbox cleaned on exit.");
 
   } catch (err) {
-    console.error("Cleanup on exit failed:", err);
+    //console.error("Cleanup on exit failed:", err);
   }
 
   try {
