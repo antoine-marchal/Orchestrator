@@ -585,8 +585,60 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }));
   },
 
-  openEditorModal: (nodeId) =>
-    set({ editorModal: { isOpen: true, nodeId } }),
+  openEditorModal: (nodeId) => {
+    const state = get();
+    const node = state.nodes.find((n) => n.id === nodeId);
+
+    // Helper: actually open the modal
+    const open = () => {
+      set({ editorModal: { isOpen: true, nodeId } });
+    };
+
+    // If no external file, just open
+    if (!node?.data?.codeFilePath || !(window as any).electronAPI?.readTextFile) {
+      open();
+      return;
+    }
+
+    try {
+      const flowPath = state.flowPath || '';
+      const codeFilePath = pathUtils.isAbsolute(node.data.codeFilePath)
+        ? node.data.codeFilePath
+        : pathUtils.join(pathUtils.dirname(flowPath), node.data.codeFilePath);
+
+      // Load the file, then update the node, then open the modal
+      (window as any).electronAPI
+        .readTextFile(codeFilePath)
+        .then((code: string) => {
+          // Update node's code in the store so the editor gets the latest
+          state.updateNodeData(nodeId, { code }, false);
+        })
+        .catch((err: any) => {
+          state.addConsoleMessage?.({
+            nodeId,
+            type: 'error',
+            message: `Failed to load code from file: ${node.data.codeFilePath}`,
+            timestamp: Date.now(),
+          });
+          console.error('Failed to load code file for editor:', err);
+        })
+        .finally(() => {
+          // Only open after we’ve tried to sync the code
+          open();
+        });
+    } catch (err) {
+      state.addConsoleMessage?.({
+        nodeId,
+        type: 'error',
+        message: `Error resolving code file path: ${node?.data?.codeFilePath ?? ''}`,
+        timestamp: Date.now(),
+      });
+      console.error('Error resolving code file path for editor:', err);
+      open();
+    }
+  },
+
+
   closeEditorModal: () =>
     set({ editorModal: { isOpen: false, nodeId: null } }),
 
@@ -687,12 +739,12 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       // Create a folder with the same name as the .or file (without extension)
       const flowFileName = state.flowPath.split(/[\\/]/).pop() || 'flow';
       const flowFolderName = flowFileName.replace(/\.or$/, '');
-      const flowFolderPath = pathUtils.join(pathUtils.dirname(state.flowPath), flowFolderName);
+      //const flowFolderPath = pathUtils.join(pathUtils.dirname(state.flowPath), flowFolderName);
 
       // Ensure the folder exists
-      if (window.electronAPI?.ensureDirectoryExists) {
-        await window.electronAPI.ensureDirectoryExists(flowFolderPath);
-      }
+      //if (window.electronAPI?.ensureDirectoryExists) {
+      //await window.electronAPI.ensureDirectoryExists(flowFolderPath);
+      //}
 
       // Process each node
       nodesToSave = await Promise.all(nodesToSave.map(async (node: Node) => {
@@ -1607,7 +1659,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
             let codeFilePath = node.data.codeFilePath;
             const flowPath = get().flowPath;
-            const basePath = flowPath?pathUtils.dirname(flowPath):undefined;
+            const basePath = flowPath ? pathUtils.dirname(flowPath) : undefined;
             if (codeFilePath) {
               if (!pathUtils.isAbsolute(codeFilePath) && flowPath) {
                 codeFilePath = pathUtils.join(pathUtils.dirname(flowPath), codeFilePath);
