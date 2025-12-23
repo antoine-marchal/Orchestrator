@@ -349,6 +349,7 @@ async function executeFlowFile(
           if (Object.prototype.hasOwnProperty.call(injectedInputs, nodeId)) {
             // forwarded input from a previous goto rule wins
             processedInputs = injectedInputs[nodeId];
+            delete injectedInputs[nodeId];
           } else if (starterId && nodeId === starterId) {
             processedInputs = flowInput;
           } else {
